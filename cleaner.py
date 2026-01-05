@@ -5,21 +5,12 @@ import logging
 from tqdm import tqdm
 from pathlib import Path
 import argparse
+import sys
+from core.organizer import DownloadOrganizer
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, 
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
-
-def load_config(config_path):
-    try:
-        with open(config_path) as f:
-            return json.load(f)
-    except FileNotFoundError:
-        logging.error("Configuration file not found.")
-        raise SystemExit("Configuration file not found.")
-    except json.JSONDecodeError:
-        logging.error("Configuration file is not a valid JSON.")
-        raise SystemExit("Configuration file is not a valid JSON.")
 
 def create_folders(folders, base_dir):
     for folder in folders.keys():
@@ -30,7 +21,6 @@ def create_folders(folders, base_dir):
                 logging.info(f"Created folder: {folder}")
             except PermissionError:
                 logging.error(f"Permission denied: Unable to create folder {folder}")
-
 
 def organize_files(folders, base_dir, dry_run):
     summary = {"moved": 0, "skipped": 0, "errors": 0}
@@ -72,36 +62,17 @@ def main():
 
     # Set custom log file if provided
     if args.log:
-        logging.basicConfig(filename=args.log, level=logging.INFO, 
+        logging.basicConfig(filename=args.log, level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s')
 
     # Determine configuration file path
-    if args.config:
-        config_path = Path(args.config)
-    else:
-        # Ensure the config.json is located in the same directory as the executable
-        config_path = Path(sys._MEIPASS) / 'config.json' if hasattr(sys, '_MEIPASS') else Path(__file__).parent / 'config.json'
+    config_path = args.config
 
-    # Load configuration
-    if not config_path.exists():
-        default_config = {
-            "Videos": [".mp4", ".mkv", ".avi", ".mpg", ".mov", ".wmv", ".flv", ".mpg"],
-            "Pictures": [".gif", ".jpg", ".png", ".jpeg", ".cr2", ".nef", ".bmp", ".tiff", ".svg", ".ico", ".JPG"],
-            "Music": [".aac", ".mp3", ".wma", ".wav"],
-            "Compressed": [".zip", ".rar", ".tar", ".tar.gz", ".tgz", ".bz", ".7z", ".tgz", ".tar.bz2"],
-            "Books": [".pdf", ".epub"],
-            "Documents": [".doc", ".docx", ".txt", ".ppt", ".pptx", ".pdf", ".rtf", ".csv", ".xls", ".xlsx"],
-            "Programs": [".exe", ".msi"],
-            "VirtualDisk": [".vmdk", ".ova", ".iso", ".img"],
-            "Extras": [".html", ".c", ".cpp", ".torrent", ".ino", "ttf", ".otf", ".ipa", "apk", ".lottie", ".json"],
-            "Scripts": [".py", ".sh", ".bat", ".ps1"],
-            "Adobe": [".xd", ".ai", ".psd", ".svg", ".eps"]
-        }
-        with open(config_path, "w") as f:
-            json.dump(default_config, f, indent=4)
-        logging.info(f"Default configuration file created at {config_path}")
-
-    folders = load_config(config_path)
+    # Use DownloadOrganizer to get the configuration
+    # This consolidates logic: it will use defaults if no file provided,
+    # or load from file if provided/found.
+    organizer = DownloadOrganizer(config_path)
+    folders = organizer.get_config()
 
     # Determine base directory
     if args.directory:
