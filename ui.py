@@ -9,7 +9,9 @@ class OrganizerGUI:
         master.title("Download Organizer 3.0")
         
         self.organizer = DownloadOrganizer()
-        self.source_dir = tk.StringVar()
+        # Default to user's Downloads directory for better UX
+        downloads_path = Path.home() / "Downloads"
+        self.source_dir = tk.StringVar(value=str(downloads_path))
         self.config_path = tk.StringVar(value="config.json")
         self.dry_run = tk.BooleanVar(value=False)
         
