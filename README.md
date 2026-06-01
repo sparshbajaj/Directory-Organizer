@@ -9,6 +9,7 @@ A smart file organization tool that automatically categorizes your downloads int
 ✨ **Key Features**:
 - 🖥️ Modern UI with intuitive controls
 - 🔍 Dry-run mode to preview changes
+- 🤖 AI-inspired renaming based on file context
 - ⚙️ Persistent settings and configurations
 - 📁 Customizable file type mappings
 - 🛠️ CLI and GUI modes
@@ -28,6 +29,7 @@ A smart file organization tool that automatically categorizes your downloads int
    - Select the source directory (e.g., your Downloads folder).
    - Select a configuration file (e.g., `config.json`) to define file types and their corresponding folders.
    - Preview changes to see what files will be moved.
+   - Optionally enable AI rename to generate cleaner filenames.
    - Organize files into folders based on their types.
    - Save and load settings for future use.
 
@@ -95,6 +97,7 @@ Pre-built Windows executables are available in [GitHub Releases](https://github.
 
 - **UI**: A modern and minimal interface for organizing files.
 - **Preview Changes**: Generates `preview_changes.txt` showing planned moves and creates folders
+- **AI Rename**: Generates cleaner names using file context for text-based files and metadata.
 - **Save/Load Settings**: Save frequently used configurations for quick access.
 - **Customizable**: Easily modify file types and folders in the `config.json` file.
 - **Error Handling**: Handles file name conflicts and logs errors.
