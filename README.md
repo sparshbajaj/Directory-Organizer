@@ -8,13 +8,14 @@ A smart file organization tool that automatically categorizes your downloads int
 
 ✨ **Key Features**:
 - 🖥️ Modern UI with intuitive controls
-- 🔍 Dry-run mode to preview changes
-- 🤖 AI-inspired renaming based on file context
+- 🔍 Dry-run mode with per-file preview and approval
+- 🤖 Local rename intelligence with optional AI provider support
 - ⚙️ Persistent settings and configurations
-- 📁 Customizable file type mappings
+- 📁 Customizable file type mappings with rule editor
 - 🛠️ CLI and GUI modes
 - 📦 Executable builds for Windows
-- 📄 Detailed logging and error handling
+- 📄 Detailed logging, undo, and error reporting
+- 👀 Watch mode for new file arrivals
 
 ## Getting Started
 
@@ -30,6 +31,7 @@ A smart file organization tool that automatically categorizes your downloads int
    - Select a configuration file (e.g., `config.json`) to define file types and their corresponding folders.
    - Preview changes to see what files will be moved.
    - Optionally enable AI rename to generate cleaner filenames.
+   - Review the rename preview table and approve per file.
    - Organize files into folders based on their types.
    - Save and load settings for future use.
 
@@ -98,6 +100,47 @@ Pre-built Windows executables are available in [GitHub Releases](https://github.
 - **UI**: A modern and minimal interface for organizing files.
 - **Preview Changes**: Generates `preview_changes.txt` showing planned moves and creates folders
 - **AI Rename**: Generates cleaner names using file context for text-based files and metadata.
+- **Conflict handling**: Skip, overwrite, append counter, keep both, or move to Conflicts.
+- **Filters**: Minimum size, minimum age, and ignored folders.
+- **Smart grouping**: Group by date, project, or source app with tagged folders.
+- **Undo**: One-click rollback of the last run.
+
+## AI Setup
+
+The default provider is **local** (no network). You can optionally configure a provider compatible with OpenAI's API schema.
+
+### Provider options
+- **Local**: Offline SmartRenamer (default)
+- **OpenAI**: `https://api.openai.com/v1`
+- **OpenRouter**: `https://openrouter.ai/api/v1`
+- **Custom**: Provide your own base URL + model
+
+### Configuration fields
+- Provider preset
+- Base URL
+- Model
+- API key (masked in UI)
+- Temperature, max tokens, timeout
+- Consent toggle and “send content snippet” option
+
+### API key sources
+API keys can be:
+- Entered in the UI (optionally stored in `~/.directory_organizer/settings.json`)
+- Provided via environment variables:
+  - `OPENAI_API_KEY` for OpenAI
+  - `OPENROUTER_API_KEY` for OpenRouter
+  - `DIRECTORY_ORGANIZER_AI_KEY` for custom providers
+
+### Data sent & privacy
+When consent is enabled, the app sends:
+- File name, extension, size
+- Optional first 1–2 pages of text content for text files (truncated)
+
+Disable “Send content snippet” to send metadata only, or switch to the Local provider for offline mode.
+
+## Security Notes
+- API keys are only stored locally when you enable “Save API key in config.”
+- The Local provider never sends data over the network.
 - **Save/Load Settings**: Save frequently used configurations for quick access.
 - **Customizable**: Easily modify file types and folders in the `config.json` file.
 - **Error Handling**: Handles file name conflicts and logs errors.

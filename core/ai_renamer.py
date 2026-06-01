@@ -6,7 +6,9 @@ from pathlib import Path
 
 DEFAULT_MAX_WORDS = 6
 DEFAULT_MAX_LENGTH = 80
-MAX_TEXT_CHARS = 20000
+DEFAULT_PAGE_CHARS = 2000
+MAX_TEXT_PAGES = 2
+MAX_TEXT_CHARS = DEFAULT_PAGE_CHARS * MAX_TEXT_PAGES
 
 TEXT_EXTENSIONS = {
     ".txt",
@@ -119,11 +121,7 @@ class SmartRenamer:
         return self._title_from_text(text)
 
     def _read_text(self, file_path: Path) -> str:
-        try:
-            with file_path.open("r", encoding="utf-8", errors="ignore") as handle:
-                return handle.read(MAX_TEXT_CHARS)
-        except OSError:
-            return ""
+        return read_text_excerpt(file_path, MAX_TEXT_CHARS, MAX_TEXT_PAGES)
 
     def _title_from_json(self, text: str) -> str:
         try:
@@ -198,11 +196,7 @@ class SmartRenamer:
         return stem
 
     def _sanitize(self, name: str) -> str:
-        name = re.sub(r"[<>:\"/\\|?*\n\r\t]", " ", name)
-        name = re.sub(r"\s+", " ", name).strip(" .")
-        if len(name) > self.max_length:
-            name = name[: self.max_length].rstrip()
-        return name
+        return sanitize_filename(name, self.max_length)
 
     def _is_generic_stem(self, stem: str) -> bool:
         if not stem:
@@ -213,3 +207,26 @@ class SmartRenamer:
             return True
 
         return any(pattern.match(lowered) for pattern in GENERIC_PATTERNS)
+
+
+def read_text_excerpt(file_path: Path, max_chars=MAX_TEXT_CHARS, max_pages=MAX_TEXT_PAGES) -> str:
+    if max_chars <= 0:
+        return ""
+    try:
+        with file_path.open("r", encoding="utf-8", errors="ignore") as handle:
+            text = handle.read(max_chars)
+    except OSError:
+        return ""
+
+    if "\f" in text:
+        pages = text.split("\f")
+        text = "\f".join(pages[: max_pages]).strip()
+    return text
+
+
+def sanitize_filename(name: str, max_length: int = DEFAULT_MAX_LENGTH) -> str:
+    name = re.sub(r"[<>:\"/\\|?*\n\r\t]", " ", name)
+    name = re.sub(r"\s+", " ", name).strip(" .")
+    if len(name) > max_length:
+        name = name[: max_length].rstrip()
+    return name
