@@ -1,150 +1,126 @@
-# 📂 Directory Organizer
+# 📂 Directory Organizer (TUI Revamp)
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub release](https://img.shields.io/github/release/sparshbajaj/Download-Directory-Organizer.svg)](https://github.com/sparshbajaj/Download-Directory-Organizer/releases)
 
-A smart file organization tool that automatically categorizes your downloads into configurable folders. Inspired by [DropIt](http://dropit.sourceforge.net/), with modern features and cross-platform support.
+A smart, terminal-first, AI-native file organization tool that automatically scans, renames, and categorizes downloads into custom folders. Powered by a Textual TUI frontend, SQLite backend, and flexible AI models (including local command-line tools like Gemini CLI and Claude Code).
 
-✨ **Key Features**:
-- 🖥️ Modern UI with intuitive controls
-- 🔍 Dry-run mode with per-file preview and approval
-- 🤖 Local rename intelligence with optional AI provider support
-- ⚙️ Persistent settings and configurations
-- 📁 Customizable file type mappings with rule editor
-- 🛠️ CLI and GUI modes
-- 📦 Executable builds for Windows
-- 📄 Detailed logging, undo, and error reporting
-- 👀 Watch mode for new file arrivals
+---
 
-## Getting Started
+## ✨ Key Features
 
-### Using the UI
+- 🖥️ **Modern TUI**: Fully keyboard-driven terminal user interface built with the [Textual](https://textual.textualize.io/) framework.
+- 🤖 **AI-Native Renaming**: Context-aware suggested names using direct API endpoints (OpenAI, OpenRouter, Custom) or local command-line agents (`gemini-cli`, `claude-cli`).
+- 🔍 **First-Time Wizard**: Initial setup flow to guide you through AI providers, models, endpoints, and credentials.
+- 📦 **Text Extraction**: Auto-parses document content (`.pdf`, `.docx`, `.pptx`, `.txt`) to supply text context directly to the AI model.
+- 🗄️ **SQLite DB Audit Log**: Tracks full execution histories, individual suggestions, and atomic file move logs.
+- 🛠️ **Perfect Undo**: Interactive run history browser with one-key rollback (`U`) to restore files to their exact original paths and names.
+- 🌳 **Unicode Graph Map**: Interactive folder cluster tree representing categories, folder layouts, and planned changes.
+- ⚡ **Performance Controls**: Adjustable timeouts, request batching pauses, and a **Test Scan Limit** to restrict traversal on large directories.
 
-1. Clone or download the project.
-2. Run the following command to start the UI:
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Python 3.10+
+- A configured terminal with 256-color support (recommended).
+
+### Installation
+
+1. Clone or download the repository.
+2. Create and activate a virtual environment, then install the dependencies:
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate   # On Windows
+   source .venv/bin/activate # On Unix/macOS
+   pip install -r requirements.txt
    ```
-   python3 ui.py
-   ```
-3. Use the UI to:
-   - Select the source directory (e.g., your Downloads folder).
-   - Select a configuration file (e.g., `config.json`) to define file types and their corresponding folders.
-   - Preview changes to see what files will be moved.
-   - Optionally enable AI rename to generate cleaner filenames.
-   - Review the rename preview table and approve per file.
-   - Organize files into folders based on their types.
-   - Save and load settings for future use.
 
-### Using the Command Line
+### Launching the Terminal UI
 
-1. Run the script directly:
-   ```
-   python3 Cleaner\ 2.0/cleaner.py --directory <path_to_directory> --config <path_to_config.json>
-   ```
-2. Use additional arguments:
-   - `--dry-run`: Preview changes without moving files (generates preview_changes.txt)
-   - `--log <path_to_log_file>`: Save logs to a file
-   - `--preview`: Alias for --dry-run
+Run the TUI app entry point:
+```bash
+python tui.py
+```
+On your first launch, you will be prompted with the **First-Time Config Wizard** to set up your AI options.
 
-### Configuration
+#### Key Bindings in suggestions Screen:
+*   `Space`: Toggle/Approve suggestion.
+*   `E`: Edit proposed filename.
+*   `Y`: Apply approved changes.
+*   `M`: View folder relationship map.
+*   `Q` / `Esc`: Back to configuration screen.
 
-The `config.json` file defines the file types and their corresponding folders. You can customize it to add or modify file types. Example:
+#### Key Bindings in History Screen:
+*   `U`: Roll back/Undo the selected run.
+*   `Q` / `Esc`: Back to main config screen.
+
+---
+
+## 💻 CLI Usage
+
+Execute the background organizer engine directly from your terminal:
+```bash
+python cleaner.py --directory <path> --config <path_to_config.json>
+```
+
+### Options:
+- `--dry-run` / `--preview`: Perform a simulated run and export planned changes to `preview_changes.txt` without moving files.
+- `--log <path>`: Output logs to a custom file.
+- `--ai-provider <provider>`: Force a specific AI provider (e.g. `openai`, `gemini-cli`).
+- `--scan-limit <int>`: Restrict scanning to at most `N` files (useful for quick tests).
+
+---
+
+## 🛠️ Configuration
+
+File types are categorized using `config.json`. Customize this file to add or modify folders and extension mappings:
 ```json
 {
   "Videos": [".mp4", ".mkv", ".avi"],
   "Pictures": [".jpg", ".png", ".gif"],
-  "Documents": [".pdf", ".docx", ".txt"]
+  "Books": [".pdf", ".epub"],
+  "Documents": [".docx", ".doc", ".txt"]
 }
 ```
 
-### Prerequisites
+---
 
-- Python 3.x
-- `tkinter` (for the UI)
+## 🤖 AI Provider Setup
 
-Install `tkinter` on Linux if not already installed:
-```bash
-sudo apt-get install python3-tk
-```
+### 1. Direct API Providers
+- **OpenAI**: Requires `api_key` and uses standard endpoints.
+- **OpenRouter**: Useful for routing prompts to open-source models.
+- **Custom**: Specify any OpenAI-compatible base URL and model name.
 
-## Building from Source
+*Note: Keys can be entered in the UI or set via environment variables (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, or `DIRECTORY_ORGANIZER_AI_KEY`).*
 
-1. Install required packages:
-   ```bash
-   pip install pyinstaller
-   ```
-2. Build executable:
-   ```bash
-   python build.py
-   ```
-3. Find the executable in `dist/DownloadOrganizer.exe`
+### 2. Local CLI Providers
+- **Gemini CLI (`gemini-cli`)**: Uses your local `@google/gemini-cli` installation (configured via your local terminal session).
+- **Claude Code CLI (`claude-cli`)**: Uses your local `@anthropic-ai/claude-code` installation.
 
-## Releases
+On Windows, the application automatically handles NPM global batch file wrappers (`.cmd` wrappers) and optimizes command timeouts to 90 seconds to prevent execution bottlenecks. It also sanitizes prompt strings to prevent command truncation in `cmd.exe`.
 
-Pre-built Windows executables are available in [GitHub Releases](https://github.com/yourusername/Download-Directory-Organizer/releases).
+---
 
-### Using the Executable
+## 🔒 Privacy & Security
 
-- **GUI Mode**: Double-click `DownloadOrganizer.exe`
-- **Command Line**:
-  ```bash
-  DownloadOrganizer.exe --directory <path> --config <config.json>
-  ```
-  Options:
-  - `--preview`: Generate preview_changes.txt without moving files
-  - `--dry-run`: Same as --preview
-  - `--log <path>`: Save operation logs to file
+- **Local Processing**: When using the **Local** provider preset or when consent is disabled, no data is sent over the network.
+- **Snippet Consent**: When "Consent to send snippet" is enabled, text extraction is limited to supported extensions. Binary payloads are never sent.
+- **Credential Storage**: Settings and masked API keys are saved strictly locally in `~/.directory_organizer/settings.json`.
 
-## Features
+---
 
-- **UI**: A modern and minimal interface for organizing files.
-- **Preview Changes**: Generates `preview_changes.txt` showing planned moves and creates folders
-- **AI Rename**: Generates cleaner names using file context for text-based files and metadata.
-- **Conflict handling**: Skip, overwrite, append counter, keep both, or move to Conflicts.
-- **Filters**: Minimum size, minimum age, and ignored folders.
-- **Smart grouping**: Group by date, project, or source app with tagged folders.
-- **Undo**: One-click rollback of the last run.
+## 🗺️ Future Roadmap & TODOs
 
-## AI Setup
+- [ ] **HTML Map Export**: Post-MVP option to export the relationship tree and category clusters to an interactive web-based HTML graph using `pyvis`.
+- [ ] **Daemon Watcher Mode**: Background daemon task to watch directories for automatic folder allocation using the SQLite database cache.
+- [ ] **Advanced File Deduplication**: Auto-detect content duplicates based on file hashes during TUI scan runs.
 
-The default provider is **local** (no network). You can optionally configure a provider compatible with OpenAI's API schema.
+---
 
-### Provider options
-- **Local**: Offline SmartRenamer (default)
-- **OpenAI**: `https://api.openai.com/v1`
-- **OpenRouter**: `https://openrouter.ai/api/v1`
-- **Custom**: Provide your own base URL + model
+## ✍️ Authors
 
-### Configuration fields
-- Provider preset
-- Base URL
-- Model
-- API key (masked in UI)
-- Temperature, max tokens, timeout
-- Consent toggle and “send content snippet” option
-
-### API key sources
-API keys can be:
-- Entered in the UI (optionally stored in `~/.directory_organizer/settings.json`)
-- Provided via environment variables:
-  - `OPENAI_API_KEY` for OpenAI
-  - `OPENROUTER_API_KEY` for OpenRouter
-  - `DIRECTORY_ORGANIZER_AI_KEY` for custom providers
-
-### Data sent & privacy
-When consent is enabled, the app sends:
-- File name, extension, size
-- Optional first 1–2 pages of text content for text files (truncated)
-
-Disable “Send content snippet” to send metadata only, or switch to the Local provider for offline mode.
-
-## Security Notes
-- API keys are only stored locally when you enable “Save API key in config.”
-- The Local provider never sends data over the network.
-- **Save/Load Settings**: Save frequently used configurations for quick access.
-- **Customizable**: Easily modify file types and folders in the `config.json` file.
-- **Error Handling**: Handles file name conflicts and logs errors.
-
-## Authors
-
-- **Sparsh Bajaj** 
+- **Sparsh Bajaj**
