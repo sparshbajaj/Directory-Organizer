@@ -26,6 +26,7 @@ class OrganizerGUI:
         self.config_path = tk.StringVar(value="config.json")
         self.dry_run = tk.BooleanVar(value=False)
         self.ai_rename = tk.BooleanVar(value=True)
+        self.ai_classify = tk.BooleanVar(value=True)
         self.conflict_strategy = tk.StringVar(value="skip")
         self.min_size_kb = tk.IntVar(value=0)
         self.min_age_minutes = tk.IntVar(value=0)
@@ -39,13 +40,18 @@ class OrganizerGUI:
         self.ai_provider = tk.StringVar(value="local")
         self.ai_base_url = tk.StringVar()
         self.ai_model = tk.StringVar()
+        self.ai_vision_model = tk.StringVar()
         self.ai_api_key = tk.StringVar()
         self.ai_temperature = tk.DoubleVar(value=0.2)
         self.ai_max_tokens = tk.IntVar(value=48)
         self.ai_timeout = tk.IntVar(value=20)
+        self.ai_batch_size = tk.IntVar(value=1)
+        self.ai_batch_pause_ms = tk.IntVar(value=0)
         self.ai_consent = tk.BooleanVar(value=True)
         self.ai_send_content = tk.BooleanVar(value=True)
         self.ai_save_key = tk.BooleanVar(value=False)
+
+        self.ai_provider.trace_add("write", self._on_provider_change)
 
         self.status_text = tk.StringVar(value="Ready.")
         self.preview_window = None
@@ -99,6 +105,9 @@ class OrganizerGUI:
         status = ttk.Label(container, textvariable=self.status_text)
         status.grid(row=2, column=0, sticky="w", pady=(10, 0))
 
+        self.progress = ttk.Progressbar(container, orient="horizontal", mode="determinate")
+        self.progress.grid(row=3, column=0, sticky="ew", pady=(5, 0))
+
     def _build_main_tab(self, parent):
         parent.columnconfigure(1, weight=1)
 
@@ -123,6 +132,9 @@ class OrganizerGUI:
         )
         ttk.Checkbutton(options, text="Use AI for renaming", variable=self.ai_rename).grid(
             row=0, column=1, sticky="w"
+        )
+        ttk.Checkbutton(options, text="Use AI for classification", variable=self.ai_classify).grid(
+            row=0, column=2, sticky="w"
         )
 
         ttk.Label(options, text="Conflict handling").grid(row=1, column=0, sticky="w", pady=4)
@@ -183,50 +195,119 @@ class OrganizerGUI:
         parent.columnconfigure(1, weight=1)
 
         ttk.Label(parent, text="Provider").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Combobox(
+        self.provider_combo = ttk.Combobox(
             parent,
             textvariable=self.ai_provider,
             values=["local", "openai", "openrouter", "custom"],
             state="readonly",
-        ).grid(row=0, column=1, sticky="w")
+        )
+        self.provider_combo.grid(row=0, column=1, sticky="w")
 
         ttk.Label(parent, text="Base URL").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.ai_base_url).grid(row=1, column=1, sticky="ew", pady=4)
+        self.base_url_entry = ttk.Entry(parent, textvariable=self.ai_base_url)
+        self.base_url_entry.grid(row=1, column=1, sticky="ew", pady=4)
 
         ttk.Label(parent, text="Model").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.ai_model).grid(row=2, column=1, sticky="ew", pady=4)
+        self.model_combo = ttk.Combobox(parent, textvariable=self.ai_model, state="readonly")
+        self.model_combo.grid(row=2, column=1, sticky="ew", pady=4)
+        ttk.Button(parent, text="Fetch Models", command=self.fetch_ai_models).grid(row=2, column=2, padx=(12, 0))
 
-        ttk.Label(parent, text="API key").grid(row=3, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.ai_api_key, show="*").grid(row=3, column=1, sticky="ew", pady=4)
+        ttk.Label(parent, text="Vision Model").grid(row=3, column=0, sticky="w", pady=4)
+        self.vision_model_combo = ttk.Combobox(parent, textvariable=self.ai_vision_model, state="readonly")
+        self.vision_model_combo.grid(row=3, column=1, sticky="ew", pady=4)
+        ttk.Button(parent, text="Fetch Models", command=self.fetch_ai_models).grid(row=3, column=2, padx=(12, 0))
+
+        ttk.Label(parent, text="API key").grid(row=4, column=0, sticky="w", pady=4)
+        self.api_key_entry = ttk.Entry(parent, textvariable=self.ai_api_key, show="*")
+        self.api_key_entry.grid(row=4, column=1, sticky="ew", pady=4)
         ttk.Checkbutton(parent, text="Save API key in config", variable=self.ai_save_key).grid(
-            row=3, column=2, sticky="w", padx=(12, 0)
+            row=4, column=2, sticky="w", padx=(12, 0)
         )
 
-        ttk.Label(parent, text="Temperature").grid(row=4, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.ai_temperature, width=6).grid(row=4, column=1, sticky="w", pady=4)
+        ttk.Label(parent, text="Temperature").grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Entry(parent, textvariable=self.ai_temperature, width=6).grid(row=5, column=1, sticky="w", pady=4)
 
-        ttk.Label(parent, text="Max tokens").grid(row=5, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.ai_max_tokens, width=6).grid(row=5, column=1, sticky="w", pady=4)
+        ttk.Label(parent, text="Max tokens").grid(row=6, column=0, sticky="w", pady=4)
+        ttk.Entry(parent, textvariable=self.ai_max_tokens, width=6).grid(row=6, column=1, sticky="w", pady=4)
 
-        ttk.Label(parent, text="Timeout (sec)").grid(row=6, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.ai_timeout, width=6).grid(row=6, column=1, sticky="w", pady=4)
+        ttk.Label(parent, text="Timeout (sec)").grid(row=7, column=0, sticky="w", pady=4)
+        ttk.Entry(parent, textvariable=self.ai_timeout, width=6).grid(row=7, column=1, sticky="w", pady=4)
+
+        ttk.Label(parent, text="AI batch size").grid(row=8, column=0, sticky="w", pady=4)
+        ttk.Entry(parent, textvariable=self.ai_batch_size, width=6).grid(row=8, column=1, sticky="w", pady=4)
+
+        ttk.Label(parent, text="Pause per batch (ms)").grid(row=9, column=0, sticky="w", pady=4)
+        ttk.Entry(parent, textvariable=self.ai_batch_pause_ms, width=8).grid(row=9, column=1, sticky="w", pady=4)
 
         ttk.Checkbutton(parent, text="Consent to send data", variable=self.ai_consent).grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=4
+            row=10, column=0, columnspan=2, sticky="w", pady=4
         )
         ttk.Checkbutton(parent, text="Send content snippet (1-2 pages)", variable=self.ai_send_content).grid(
-            row=8, column=0, columnspan=2, sticky="w", pady=4
+            row=11, column=0, columnspan=2, sticky="w", pady=4
         )
 
         data_notice = (
             "Data sent: file name, extension, size, and optional first 1-2 pages of text for text files."
         )
-        ttk.Label(parent, text=data_notice, wraplength=420).grid(row=9, column=0, columnspan=3, sticky="w", pady=6)
+        ttk.Label(parent, text=data_notice, wraplength=420).grid(row=12, column=0, columnspan=3, sticky="w", pady=6)
 
         actions = ttk.Frame(parent)
-        actions.grid(row=10, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        actions.grid(row=13, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ttk.Button(actions, text="Test connection", command=self.test_ai_connection).grid(row=0, column=0, padx=(0, 8))
         ttk.Button(actions, text="Preview AI rename", command=self.preview_ai_rename).grid(row=0, column=1)
+
+        # Initial refresh
+        self.master.after(100, self._on_provider_change)
+
+    def _on_provider_change(self, *args):
+        if not hasattr(self, "base_url_entry"):
+            return
+        provider = self.ai_provider.get()
+        from core.ai_client import PROVIDER_PRESETS
+        preset = PROVIDER_PRESETS.get(provider, {})
+
+        # Update defaults based on provider
+        if provider != "custom":
+            if preset.get("base_url"):
+                self.ai_base_url.set(preset["base_url"])
+            if preset.get("model"):
+                self.ai_model.set(preset["model"])
+
+        # Enable/Disable entries
+        if provider == "local":
+            self.base_url_entry.configure(state="disabled")
+            self.model_combo.configure(state="disabled")
+            self.vision_model_combo.configure(state="disabled")
+            self.api_key_entry.configure(state="disabled")
+        elif provider in ["openai", "openrouter"]:
+            self.base_url_entry.configure(state="disabled")
+            self.model_combo.configure(state="readonly")
+            self.vision_model_combo.configure(state="readonly")
+            self.api_key_entry.configure(state="normal")
+        else:
+            self.base_url_entry.configure(state="normal")
+            self.model_combo.configure(state="normal")
+            self.vision_model_combo.configure(state="normal")
+            self.api_key_entry.configure(state="normal")
+
+    def fetch_ai_models(self):
+        self.status_text.set("Fetching models...")
+        self.master.update_idletasks()
+        
+        options = self._gather_options()
+        client = AIClient(options.ai_config)
+        
+        models = client.list_models()
+        if models:
+            self.model_combo.configure(values=tuple(models))
+            self.vision_model_combo.configure(values=tuple(models))
+            self.status_text.set(f"Fetched {len(models)} models.")
+            if models and not self.ai_model.get():
+                self.ai_model.set(models[0])
+            messagebox.showinfo("Success", f"Found {len(models)} models.")
+        else:
+            self.status_text.set("Failed to fetch models.")
+            messagebox.showerror("Error", "Could not fetch models. Check your API key and Base URL.")
 
     def _load_settings(self):
         if not SETTINGS_PATH.exists():
@@ -241,12 +322,16 @@ class OrganizerGUI:
         self.ai_provider.set(data.get("ai_provider", "local"))
         self.ai_base_url.set(data.get("ai_base_url", ""))
         self.ai_model.set(data.get("ai_model", ""))
+        self.ai_vision_model.set(data.get("ai_vision_model", ""))
         self.ai_temperature.set(data.get("ai_temperature", 0.2))
         self.ai_max_tokens.set(data.get("ai_max_tokens", 48))
         self.ai_timeout.set(data.get("ai_timeout", 20))
+        self.ai_batch_size.set(data.get("ai_batch_size", 1))
+        self.ai_batch_pause_ms.set(data.get("ai_batch_pause_ms", 0))
         self.ai_consent.set(data.get("ai_consent", True))
         self.ai_send_content.set(data.get("ai_send_content", True))
         self.ai_save_key.set(data.get("ai_save_key", False))
+        self.ai_classify.set(data.get("ai_classify", True))
         if data.get("ai_save_key"):
             self.ai_api_key.set(data.get("ai_api_key", ""))
 
@@ -266,12 +351,16 @@ class OrganizerGUI:
             "ai_provider": self.ai_provider.get(),
             "ai_base_url": self.ai_base_url.get(),
             "ai_model": self.ai_model.get(),
+            "ai_vision_model": self.ai_vision_model.get(),
             "ai_temperature": self.ai_temperature.get(),
             "ai_max_tokens": self.ai_max_tokens.get(),
             "ai_timeout": self.ai_timeout.get(),
+            "ai_batch_size": self.ai_batch_size.get(),
+            "ai_batch_pause_ms": self.ai_batch_pause_ms.get(),
             "ai_consent": self.ai_consent.get(),
             "ai_send_content": self.ai_send_content.get(),
             "ai_save_key": self.ai_save_key.get(),
+            "ai_classify": self.ai_classify.get(),
             "conflict_strategy": self.conflict_strategy.get(),
             "min_size_kb": self.min_size_kb.get(),
             "min_age_minutes": self.min_age_minutes.get(),
@@ -296,6 +385,7 @@ class OrganizerGUI:
             provider=self.ai_provider.get(),
             base_url=self.ai_base_url.get(),
             model=self.ai_model.get(),
+            vision_model=self.ai_vision_model.get(),
             api_key=self.ai_api_key.get(),
             temperature=self.ai_temperature.get(),
             max_tokens=self.ai_max_tokens.get(),
@@ -305,6 +395,7 @@ class OrganizerGUI:
         )
         return OrganizerOptions(
             ai_rename=self.ai_rename.get(),
+            ai_classify=self.ai_classify.get(),
             ai_config=ai_config,
             conflict_strategy=self.conflict_strategy.get(),
             min_size_bytes=max(self.min_size_kb.get(), 0) * 1024,
@@ -313,6 +404,8 @@ class OrganizerGUI:
             grouping=self.grouping.get(),
             tag_folders=self.tag_folders.get(),
             allow_unknown=True,
+            ai_batch_size=max(self.ai_batch_size.get(), 1),
+            ai_batch_pause_ms=max(self.ai_batch_pause_ms.get(), 0),
         )
 
     def select_source_dir(self):
@@ -334,6 +427,13 @@ class OrganizerGUI:
         self.ai_rename.set(True)
         self.run_organizer(dry_run=True)
 
+    def _update_progress(self, current, total, text=None):
+        percent = (current / total) * 100
+        self.progress["value"] = percent
+        if text:
+            self.status_text.set(text)
+        self.master.update_idletasks()
+
     def run_organizer(self, dry_run=False):
         try:
             source = Path(self.source_dir.get())
@@ -343,18 +443,39 @@ class OrganizerGUI:
             self._save_settings()
             options = self._gather_options()
             self.organizer = DownloadOrganizer(self.config_path.get())
-            plan, summary = self.organizer.build_plan(source, options)
+            
+            self.progress["value"] = 0
+            self.status_text.set("Building plan...")
+            
+            plan, summary = self.organizer.build_plan(source, options, progress_callback=self._update_progress)
             self.last_source = source
 
             if dry_run or self.dry_run.get():
-                summary = self.organizer.organize(source, dry_run=True, options=options, plan=plan, summary=summary)
+                summary = self.organizer.organize(
+                    source, 
+                    dry_run=True, 
+                    options=options, 
+                    plan=plan, 
+                    summary=summary,
+                    progress_callback=self._update_progress
+                )
+                self.status_text.set("Ready.")
                 self.show_preview(plan, summary, options)
                 return
 
-            summary = self.organizer.organize(source, dry_run=False, options=options, plan=plan, summary=summary)
+            summary = self.organizer.organize(
+                source, 
+                dry_run=False, 
+                options=options, 
+                plan=plan, 
+                summary=summary,
+                progress_callback=self._update_progress
+            )
             self.last_summary = summary
+            self.status_text.set("Ready.")
             self._show_summary(summary)
         except Exception as e:
+            self.status_text.set("Error occurred.")
             messagebox.showerror("Error", str(e))
 
     def show_preview(self, plan, summary, options):
@@ -433,14 +554,18 @@ class OrganizerGUI:
     def apply_preview(self, tree, options):
         if not self.last_source:
             return
+        
+        self.progress["value"] = 0
         summary = self.organizer.organize(
             self.last_source,
             dry_run=False,
             options=options,
             plan=self.preview_plan,
             summary=self.preview_summary,
+            progress_callback=self._update_progress
         )
         self.last_summary = summary
+        self.status_text.set("Ready.")
         if self.preview_window:
             self.preview_window.destroy()
         self._show_summary(summary)

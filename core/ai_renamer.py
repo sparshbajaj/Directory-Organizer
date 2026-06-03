@@ -19,6 +19,18 @@ TEXT_EXTENSIONS = {
     ".yaml",
     ".yml",
     ".log",
+    ".xml",
+    ".html",
+    ".htm",
+    ".css",
+    ".js",
+    ".py",
+}
+
+CONTENT_TITLE_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".rtf",
 }
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".heic", ".tiff", ".bmp", ".svg"}
@@ -106,19 +118,17 @@ class SmartRenamer:
         return candidate
 
     def _contextual_title(self, file_path: Path, ext: str) -> str:
-        if ext not in TEXT_EXTENSIONS:
+        if ext not in CONTENT_TITLE_EXTENSIONS:
             return ""
 
         text = self._read_text(file_path)
         if not text:
             return ""
 
-        if ext == ".json":
-            title = self._title_from_json(text)
-            if title:
-                return title
-
-        return self._title_from_text(text)
+        title = self._title_from_text(text)
+        if self._is_low_context_title(title):
+            return ""
+        return title
 
     def _read_text(self, file_path: Path) -> str:
         return read_text_excerpt(file_path, MAX_TEXT_CHARS, MAX_TEXT_PAGES)
@@ -197,6 +207,17 @@ class SmartRenamer:
 
     def _sanitize(self, name: str) -> str:
         return sanitize_filename(name, self.max_length)
+
+    def _is_low_context_title(self, title: str) -> bool:
+        if not title:
+            return True
+        words = re.findall(r"[A-Za-z0-9]+", title)
+        if len(words) < 3:
+            return True
+        lowered = " ".join(words).lower()
+        if lowered in GENERIC_NAMES:
+            return True
+        return any(pattern.match(lowered) for pattern in GENERIC_PATTERNS)
 
     def _is_generic_stem(self, stem: str) -> bool:
         if not stem:

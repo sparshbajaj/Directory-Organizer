@@ -18,6 +18,7 @@ DEFAULT_GROUPING = "none"
 @dataclass
 class OrganizerOptions:
     ai_rename: bool = False
+    ai_classify: bool = False
     ai_config: AIProviderConfig = field(default_factory=AIProviderConfig)
     conflict_strategy: str = DEFAULT_CONFLICT_STRATEGY
     min_size_bytes: int = 0
@@ -26,6 +27,8 @@ class OrganizerOptions:
     grouping: str = DEFAULT_GROUPING
     tag_folders: bool = False
     allow_unknown: bool = True
+    ai_batch_size: int = 1
+    ai_batch_pause_ms: int = 0
 
 
 @dataclass
@@ -73,7 +76,12 @@ class DownloadOrganizer:
             )
         return cleaned
 
-    def build_plan(self, source_dir: Path, options: Optional[OrganizerOptions] = None) -> Tuple[List[FilePlan], Dict]:
+    def build_plan(
+        self, 
+        source_dir: Path, 
+        options: Optional[OrganizerOptions] = None,
+        progress_callback: Optional[callable] = None
+    ) -> Tuple[List[FilePlan], Dict]:
         options = options or OrganizerOptions()
         source = Path(source_dir)
         summary = {
@@ -90,18 +98,24 @@ class DownloadOrganizer:
         plan: List[FilePlan] = []
         reserved_names: Dict[Path, set] = {}
 
-        ai_client = AIClient(options.ai_config, AINameCache(self.cache_path)) if options.ai_rename else None
+        ai_client = AIClient(options.ai_config, AINameCache(self.cache_path)) if (options.ai_rename or options.ai_classify) else None
 
-        for item in source.iterdir():
+        items = []
+        for item in source.rglob("*"):
             if item.is_dir():
-                if item.name in options.ignored_folders:
-                    continue
-                if item.name in self.config:
-                    continue
                 continue
-
             if not item.is_file():
                 continue
+            if self._is_ignored(item, source, options.ignored_folders):
+                continue
+            items.append(item)
+
+        total = len(items)
+        ai_counter = 0
+
+        for idx, item in enumerate(items):
+            if progress_callback:
+                progress_callback(idx + 1, total, f"Analyzing {item.name}...")
 
             size = item.stat().st_size
             if options.min_size_bytes and size < options.min_size_bytes:
@@ -116,6 +130,11 @@ class DownloadOrganizer:
                 continue
 
             category = self._determine_category(item)
+            if not category and options.ai_classify and ai_client:
+                category, data_sent = ai_client.suggest_category(item, list(self.config.keys()))
+                if data_sent:
+                    summary["data_sent"].append(data_sent)
+
             if not category and options.allow_unknown:
                 category = "Other"
                 if "Other" not in self.config:
@@ -126,22 +145,55 @@ class DownloadOrganizer:
                 continue
 
             tag = self._group_tag(item, options.grouping)
-            dest_dir = source / category
-            if tag:
-                if options.tag_folders:
-                    dest_dir = dest_dir / tag
-                else:
-                    dest_dir = source / f"{category} - {tag}"
+            if item.parent != source:
+                dest_dir = item.parent
+            else:
+                dest_dir = source / category
+                if tag:
+                    if options.tag_folders:
+                        dest_dir = dest_dir / tag
+                    else:
+                        dest_dir = source / f"{category} - {tag}"
 
             reserved = reserved_names.setdefault(dest_dir, set())
             dest_name = item.name
+            rename_reason = ""
             if options.ai_rename:
-                dest_name, data_sent = self._suggest_ai_name(item, ai_client, options.ai_config)
+                ai_counter += 1
+                if progress_callback:
+                    progress_callback(
+                        idx + 1,
+                        total,
+                        f"AI rename {ai_counter}/{total}: {item.name}",
+                    )
+                dest_name, data_sent, used_ai, ai_error = self._suggest_ai_name(item, ai_client, options.ai_config)
                 if data_sent:
                     summary["data_sent"].append(data_sent)
-                if dest_name and dest_name != item.name:
-                    summary["renamed"] += 1
+
+                if used_ai:
+                    if dest_name and dest_name != item.name:
+                        summary["renamed"] += 1
+                        rename_reason = "ai-rename"
+                    else:
+                        rename_reason = "ai-nochange"
+                else:
+                    if dest_name and dest_name != item.name:
+                        summary["renamed"] += 1
+                        rename_reason = "local-rename"
+                    else:
+                        rename_reason = "local-nochange"
+
+                if ai_error:
+                    rename_reason = f"ai-error:{ai_error}"
+                    summary["details"].append(self._detail(item, "warning", f"AI rename failed: {ai_error}"))
+
+                if options.ai_rename and not dest_name:
+                    summary["details"].append(self._detail(item, "warning", "AI rename failed, using original"))
+
                 dest_name = dest_name or item.name
+                if options.ai_batch_pause_ms and options.ai_batch_size > 0:
+                    if ai_counter % options.ai_batch_size == 0:
+                        time.sleep(options.ai_batch_pause_ms / 1000)
 
             ext = item.suffix
             stem = sanitize_filename(Path(dest_name).stem)
@@ -151,6 +203,10 @@ class DownloadOrganizer:
                 dest_name = item.name
 
             dest_path = dest_dir / dest_name
+            if dest_path.resolve() == item.resolve():
+                summary["skipped"] += 1
+                summary["details"].append(self._detail(item, "skipped", "already in place"))
+                continue
             overwrite = False
             if dest_path.exists() or dest_name in reserved:
                 dest_path, dest_name, overwrite, reason = self._resolve_conflict(
@@ -175,6 +231,7 @@ class DownloadOrganizer:
                     new_name=dest_name,
                     overwrite=overwrite,
                     size=size,
+                    reason=rename_reason,
                 )
             )
 
@@ -184,6 +241,15 @@ class DownloadOrganizer:
         summary["recent_activity"] = self._recent_activity()
         return plan, summary
 
+    def _is_ignored(self, path: Path, source: Path, ignored: List[str]) -> bool:
+        if not ignored:
+            return False
+        try:
+            parts = path.relative_to(source).parts
+        except ValueError:
+            return False
+        return any(part in ignored for part in parts)
+
     def organize(
         self,
         source_dir: Path,
@@ -192,10 +258,11 @@ class DownloadOrganizer:
         options: Optional[OrganizerOptions] = None,
         plan: Optional[List[FilePlan]] = None,
         summary: Optional[Dict] = None,
+        progress_callback: Optional[callable] = None,
     ) -> Dict:
         options = options or OrganizerOptions(ai_rename=ai_rename)
         if plan is None:
-            plan, summary = self.build_plan(source_dir, options)
+            plan, summary = self.build_plan(source_dir, options, progress_callback=progress_callback)
         else:
             summary = summary or {
                 "planned": len(plan),
@@ -210,11 +277,22 @@ class DownloadOrganizer:
                 "top_categories": [],
             }
 
-        return self._execute_plan(source_dir, plan, summary, dry_run)
+        return self._execute_plan(source_dir, plan, summary, dry_run, progress_callback=progress_callback)
 
-    def _execute_plan(self, source_dir: Path, plan: List[FilePlan], summary: Dict, dry_run: bool) -> Dict:
+    def _execute_plan(
+        self, 
+        source_dir: Path, 
+        plan: List[FilePlan], 
+        summary: Dict, 
+        dry_run: bool,
+        progress_callback: Optional[callable] = None
+    ) -> Dict:
         undo_ops = []
-        for item in plan:
+        total = len(plan)
+        for idx, item in enumerate(plan):
+            if progress_callback:
+                progress_callback(idx + 1, total, f"Processing {item.source.name}...")
+
             if not item.apply:
                 summary["skipped"] += 1
                 summary["details"].append(self._detail(item.source, "skipped", "not approved"))
@@ -245,7 +323,7 @@ class DownloadOrganizer:
         if dry_run and plan:
             preview_path = Path(source_dir) / "preview_changes.txt"
             try:
-                with preview_path.open("w") as handle:
+                with preview_path.open("w", encoding="utf-8", errors="replace") as handle:
                     handle.write("Planned file moves:\n\n")
                     for item in plan:
                         if item.apply:
@@ -423,22 +501,22 @@ class DownloadOrganizer:
         file_path: Path,
         ai_client: Optional[AIClient],
         ai_config: AIProviderConfig,
-    ) -> Tuple[str, Dict]:
+    ) -> Tuple[str, Dict, bool, str]:
         if not ai_client:
-            return self.renamer.suggest_name(file_path), {}
+            return self.renamer.suggest_name(file_path), {}, False, ""
 
-        suggestion, data_sent = ai_client.suggest_name(file_path)
+        suggestion, data_sent, ai_error = ai_client.suggest_name(file_path)
         if not suggestion:
             suggestion = self.renamer.suggest_name(file_path)
-            return suggestion, data_sent
+            return suggestion, data_sent, False, ai_error
 
         ext = file_path.suffix.lower()
         stem = sanitize_filename(suggestion)
         if stem.lower().endswith(ext):
             stem = sanitize_filename(Path(stem).stem)
         if not stem:
-            return self.renamer.suggest_name(file_path), data_sent
-        return f"{stem}{ext}", data_sent
+            return self.renamer.suggest_name(file_path), data_sent, False, ai_error
+        return f"{stem}{ext}", data_sent, True, ""
 
     def _recent_activity(self) -> List[Dict]:
         if not self.undo_path.exists():
