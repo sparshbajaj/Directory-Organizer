@@ -2,6 +2,7 @@ import json
 import shutil
 import mimetypes
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -9,10 +10,18 @@ from typing import Dict, List, Optional, Tuple
 
 from core.ai_renamer import SmartRenamer, sanitize_filename
 from core.ai_client import AIClient, AIProviderConfig, AINameCache
+from core.database import DatabaseManager
 
 
 DEFAULT_CONFLICT_STRATEGY = "skip"
 DEFAULT_GROUPING = "none"
+
+RENAME_ALLOWED_EXTENSIONS = {
+    # Documents / Books / Text
+    ".pdf", ".epub", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".txt", ".rtf",
+    # Images
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".heic", ".tiff", ".svg"
+}
 
 
 @dataclass
@@ -29,6 +38,7 @@ class OrganizerOptions:
     allow_unknown: bool = True
     ai_batch_size: int = 1
     ai_batch_pause_ms: int = 0
+    scan_limit: int = 0
 
 
 @dataclass
@@ -42,6 +52,7 @@ class FilePlan:
     overwrite: bool = False
     size: int = 0
     reason: str = ""
+    id: str = ""
 
 
 class DownloadOrganizer:
@@ -61,6 +72,7 @@ class DownloadOrganizer:
         self.renamer = SmartRenamer()
         self.cache_path = Path.home() / ".directory_organizer" / "ai_cache.json"
         self.undo_path = Path.home() / ".directory_organizer" / "undo_log.json"
+        self.db = DatabaseManager()
 
     def _load_config(self, config_path: str) -> Dict[str, List[str]]:
         with open(config_path) as f:
@@ -109,6 +121,8 @@ class DownloadOrganizer:
             if self._is_ignored(item, source, options.ignored_folders):
                 continue
             items.append(item)
+            if options.scan_limit > 0 and len(items) >= options.scan_limit:
+                break
 
         total = len(items)
         ai_counter = 0
@@ -158,7 +172,8 @@ class DownloadOrganizer:
             reserved = reserved_names.setdefault(dest_dir, set())
             dest_name = item.name
             rename_reason = ""
-            if options.ai_rename:
+            is_rename_allowed = item.suffix.lower() in RENAME_ALLOWED_EXTENSIONS
+            if options.ai_rename and is_rename_allowed:
                 ai_counter += 1
                 if progress_callback:
                     progress_callback(
@@ -194,6 +209,9 @@ class DownloadOrganizer:
                 if options.ai_batch_pause_ms and options.ai_batch_size > 0:
                     if ai_counter % options.ai_batch_size == 0:
                         time.sleep(options.ai_batch_pause_ms / 1000)
+            else:
+                dest_name = item.name
+                rename_reason = "skipped-extension"
 
             ext = item.suffix
             stem = sanitize_filename(Path(dest_name).stem)
@@ -232,6 +250,7 @@ class DownloadOrganizer:
                     overwrite=overwrite,
                     size=size,
                     reason=rename_reason,
+                    id=str(uuid.uuid4()),
                 )
             )
 
@@ -289,6 +308,35 @@ class DownloadOrganizer:
     ) -> Dict:
         undo_ops = []
         total = len(plan)
+
+        run_id = str(uuid.uuid4())
+        started_at = datetime.utcnow().isoformat()
+
+        if not dry_run and plan:
+            self.db.start_run(run_id, started_at)
+            suggestions_to_save = []
+            for item in plan:
+                action = "no_change"
+                if item.dest != item.source:
+                    if item.source.name != item.dest.name:
+                        action = "rename"
+                    else:
+                        action = "move"
+                suggestions_to_save.append({
+                    "id": item.id or str(uuid.uuid4()),
+                    "original_path": str(item.source),
+                    "original_name": item.source.name,
+                    "proposed_name": item.new_name,
+                    "proposed_path": str(item.dest),
+                    "action": action,
+                    "confidence": 1.0,
+                    "rationale": item.reason or "",
+                    "risk": "low",
+                    "apply": item.apply,
+                    "category": item.category
+                })
+            self.db.add_suggestions(run_id, suggestions_to_save)
+
         for idx, item in enumerate(plan):
             if progress_callback:
                 progress_callback(idx + 1, total, f"Processing {item.source.name}...")
@@ -332,12 +380,41 @@ class DownloadOrganizer:
             except OSError:
                 pass
 
-        if not dry_run:
+        if not dry_run and plan:
             self._write_undo_log(source_dir, undo_ops)
+            undo_id = str(uuid.uuid4())
+            self.db.add_undo_log(undo_id, run_id, undo_ops)
+            self.db.finish_run(run_id, datetime.utcnow().isoformat(), summary, summary.get("moved", 0), summary.get("skipped", 0))
 
         return summary
 
     def undo_last_run(self) -> Dict:
+        # Check SQLite db first
+        last_undo = self.db.get_last_undo_log()
+        if last_undo:
+            run_id = last_undo["run_id"]
+            operations = json.loads(last_undo["operations"])
+            restored = 0
+            errors = 0
+            details = []
+            for op in operations:
+                src = Path(op["from"])
+                dest = Path(op["to"])
+                if not src.exists():
+                    continue
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                unique_name = self.renamer.ensure_unique(dest.parent, dest.name)
+                dest_path = dest.parent / unique_name
+                try:
+                    shutil.move(str(src), str(dest_path))
+                    restored += 1
+                except Exception as e:
+                    errors += 1
+                    details.append({"file": str(src), "status": "error", "message": str(e)})
+            self.db.mark_undo_applied(run_id)
+            return {"errors": errors, "restored": restored, "details": details}
+
+        # Fallback to JSON undo file
         if not self.undo_path.exists():
             return {"errors": 0, "restored": 0, "details": [], "message": "No undo history found."}
         try:

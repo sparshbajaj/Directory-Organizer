@@ -233,6 +233,57 @@ class SmartRenamer:
 def read_text_excerpt(file_path: Path, max_chars=MAX_TEXT_CHARS, max_pages=MAX_TEXT_PAGES) -> str:
     if max_chars <= 0:
         return ""
+    
+    ext = file_path.suffix.lower()
+    
+    # 1. PDF extraction
+    if ext == ".pdf":
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(file_path)
+            pages_text = []
+            pages_to_read = min(len(reader.pages), max_pages)
+            for i in range(pages_to_read):
+                text = reader.pages[i].extract_text() or ""
+                pages_text.append(text)
+            extracted = "\f".join(pages_text).strip()
+            if len(extracted) > max_chars:
+                extracted = extracted[:max_chars]
+            return extracted
+        except Exception:
+            pass  # Fall back to raw read/empty on error
+            
+    # 2. DOCX extraction
+    elif ext == ".docx":
+        try:
+            import docx
+            doc = docx.Document(file_path)
+            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+            extracted = "\n".join(paragraphs).strip()
+            if len(extracted) > max_chars:
+                extracted = extracted[:max_chars]
+            return extracted
+        except Exception:
+            pass
+            
+    # 3. PPTX extraction
+    elif ext == ".pptx":
+        try:
+            import pptx
+            prs = pptx.Presentation(file_path)
+            slide_texts = []
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_texts.append(shape.text)
+            extracted = "\n".join(slide_texts).strip()
+            if len(extracted) > max_chars:
+                extracted = extracted[:max_chars]
+            return extracted
+        except Exception:
+            pass
+
+    # 4. Standard text files
     try:
         with file_path.open("r", encoding="utf-8", errors="ignore") as handle:
             text = handle.read(max_chars)

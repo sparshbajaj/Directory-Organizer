@@ -42,6 +42,8 @@ PROVIDER_PRESETS = {
     "local": {"base_url": "", "model": ""},
     "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
+    "gemini-cli": {"base_url": "CLI", "model": "gemini"},
+    "claude-cli": {"base_url": "CLI", "model": "claude"},
     "custom": {"base_url": "", "model": ""},
 }
 
@@ -139,7 +141,7 @@ class AIClient:
         self.config = config
         self.cache = cache
 
-    def build_cache_key(self, file_path: Path, model_override: Optional[str] = None) -> str:
+    def build_cache_key(self, file_path: Path, snippet: str = "", model_override: Optional[str] = None) -> str:
         try:
             stat = file_path.stat()
             size = stat.st_size
@@ -149,6 +151,7 @@ class AIClient:
             mtime = 0
         
         model = model_override or self.config.resolved_model()
+        snippet_hash = hashlib.sha256(snippet.encode("utf-8")).hexdigest() if snippet else ""
         base = "|".join(
             [
                 str(file_path),
@@ -159,6 +162,7 @@ class AIClient:
                 self.config.resolved_base_url(),
                 str(self.config.temperature),
                 str(self.config.max_tokens),
+                snippet_hash,
             ]
         )
         return hashlib.sha256(base.encode("utf-8")).hexdigest()
@@ -170,11 +174,13 @@ class AIClient:
         mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M") if stat else "unknown"
         
         system = (
-            "You are a file renaming assistant. "
-            "Return a concise, descriptive filename without the extension. "
-            f"Limit to {DEFAULT_MAX_LENGTH} characters. "
-            "Use metadata and content to be precise but short. "
-            "Do not include quotes or extra commentary."
+            "You are a context-aware file renaming assistant. "
+            "Analyze the provided file metadata and content snippet. "
+            "If the file content contains a clear document title, project name, invoice vendor, "
+            "or subject matter, prioritize that information to generate a highly descriptive and meaningful name. "
+            "Do NOT just return a slightly cleaned version of the original numeric or cryptic name unless no other information is available. "
+            "Return ONLY the concise, descriptive filename without the extension, using alphanumeric characters, dashes, and underscores. "
+            f"Limit to {DEFAULT_MAX_LENGTH} characters. Do not include quotes or extra commentary."
         )
         user_lines = [
             f"Filename: {file_path.name}",
@@ -184,8 +190,8 @@ class AIClient:
             f"Last modified: {mtime}",
         ]
         if snippet:
-            user_lines.append("Content excerpt (short):")
-            user_lines.append(snippet[:500]) # Keep it short as requested
+            user_lines.append("Content excerpt:")
+            user_lines.append(snippet[:3000])
         user = "\n".join(user_lines)
         return system, user
 
@@ -208,8 +214,8 @@ class AIClient:
             f"Available categories: {', '.join(categories)}",
         ]
         if snippet:
-            user_lines.append("Content excerpt (short):")
-            user_lines.append(snippet[:500])
+            user_lines.append("Content excerpt:")
+            user_lines.append(snippet[:3000])
         user = "\n".join(user_lines)
         return system, user
 
@@ -223,6 +229,47 @@ class AIClient:
         }
 
     def suggest_name(self, file_path: Path) -> Tuple[Optional[str], Dict[str, Any], str]:
+        if self.config.provider in ["gemini-cli", "claude-cli"]:
+            cli_name = "gemini" if self.config.provider == "gemini-cli" else "claude"
+            import shutil
+            import subprocess
+            
+            if not shutil.which(cli_name):
+                return None, {}, f"missing_cli:{cli_name}"
+
+            snippet = ""
+            if self.config.send_content:
+                snippet = read_text_excerpt(
+                    file_path,
+                    max_chars=self.config.max_snippet_chars,
+                    max_pages=self.config.max_pages,
+                )
+
+            # Build prompt
+            system, user = self.build_prompt(file_path, snippet)
+            full_prompt = f"{system} {user}".replace("\n", " ").replace("\r", " ")
+            
+            try:
+                result = subprocess.run(
+                    [cli_name, "-p", full_prompt],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    timeout=90,
+                    shell=(os.name == "nt")
+                )
+                if result.returncode == 0:
+                    cleaned = sanitize_filename(result.stdout.strip().strip('"').strip("'"))
+                    if cleaned and not self._is_bad_ai_name(cleaned):
+                        return cleaned, self.data_sent_summary(file_path, snippet), ""
+                    else:
+                        return None, self.data_sent_summary(file_path, snippet), "empty_or_bad_cli_response"
+                else:
+                    return None, self.data_sent_summary(file_path, snippet), f"cli_failed:code_{result.returncode}:{result.stderr[:200]}"
+            except Exception as e:
+                return None, self.data_sent_summary(file_path, snippet), f"cli_exception:{str(e)}"
+
         if self.config.provider == "local" or not self.config.consent:
             return None, {}, "disabled"
         
@@ -250,7 +297,7 @@ class AIClient:
                     max_pages=self.config.max_pages,
                 )
 
-        cache_key = self.build_cache_key(file_path, model_override=model)
+        cache_key = self.build_cache_key(file_path, snippet=snippet, model_override=model)
         if self.cache:
             cached = self.cache.get(cache_key)
             if cached:
@@ -387,6 +434,39 @@ class AIClient:
             return []
 
     def suggest_category(self, file_path: Path, categories: List[str]) -> Tuple[Optional[str], Dict[str, Any]]:
+        if self.config.provider in ["gemini-cli", "claude-cli"]:
+            cli_name = "gemini" if self.config.provider == "gemini-cli" else "claude"
+            import shutil
+            import subprocess
+            
+            if not shutil.which(cli_name):
+                return None, {}
+
+            snippet = ""
+            if self.config.send_content:
+                snippet = read_text_excerpt(file_path)
+
+            system, user = self.build_classification_prompt(file_path, categories, snippet)
+            full_prompt = f"{system} {user}".replace("\n", " ").replace("\r", " ")
+            
+            try:
+                result = subprocess.run(
+                    [cli_name, "-p", full_prompt],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    timeout=90,
+                    shell=(os.name == "nt")
+                )
+                if result.returncode == 0:
+                    cleaned = result.stdout.strip().strip('"').strip("'")
+                    matched = next((c for c in categories if c.lower() in cleaned.lower()), None)
+                    return matched or cleaned, self.data_sent_summary(file_path, snippet)
+            except Exception:
+                pass
+            return None, self.data_sent_summary(file_path, snippet)
+
         if self.config.provider == "local" or not self.config.consent:
             return None, {}
         

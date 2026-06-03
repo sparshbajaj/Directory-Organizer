@@ -1,3 +1,10 @@
 tqdm
 pathlib
 pillow
+textual
+networkx
+pydantic
+filetype
+pypdf
+python-docx
+python-pptx
