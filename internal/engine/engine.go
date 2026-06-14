@@ -1,0 +1,226 @@
+// internal/engine/engine.go
+package engine
+
+import (
+    "context"
+    "database/sql"
+    "fmt"
+    "os"
+    "path/filepath"
+    "time"
+
+    "github.com/fsnotify/fsnotify"
+    "github.com/sparshbajaj/directory-organizer/internal/aiclient"
+    "github.com/sparshbajaj/directory-organizer/internal/config"
+    "github.com/sparshbajaj/directory-organizer/internal/logger"
+    _ "modernc.org/sqlite"
+)
+
+type Engine struct {
+    db        *sql.DB
+    cfg       *config.Settings
+    aiClient  *aiclient.Client
+    watcher   *fsnotify.Watcher
+    workQueue chan string
+    stopCh    chan struct{}
+}
+
+// NewEngine creates a new Engine instance, initializing DB and AI client.
+func NewEngine(cfg *config.Settings) (*Engine, error) {
+    // Ensure DB directory exists
+    if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0755); err != nil {
+        return nil, fmt.Errorf("mkdir db dir: %w", err)
+    }
+    // Ensure Watch directory exists
+    if err := os.MkdirAll(cfg.WatchDir, 0755); err != nil {
+        return nil, fmt.Errorf("mkdir watch dir: %w", err)
+    }
+    db, err := sql.Open("sqlite", cfg.DBPath)
+    if err != nil {
+        return nil, fmt.Errorf("open db: %w", err)
+    }
+    // Initialise schema
+    schema := `
+    DROP TABLE IF EXISTS files;
+    CREATE TABLE IF NOT EXISTS files (
+        path TEXT PRIMARY KEY,
+        original_name TEXT,
+        size INTEGER,
+        mod_time INTEGER,
+        metadata TEXT,
+        context TEXT
+    );`
+    if _, err := db.Exec(schema); err != nil {
+        return nil, fmt.Errorf("init schema: %w", err)
+    }
+    // Initialise AI client (placeholder config)
+    ai, err := aiclient.New(cfg)
+    if err != nil {
+        return nil, fmt.Errorf("ai client: %w", err)
+    }
+    eng := &Engine{
+        db:        db,
+        cfg:       cfg,
+        aiClient:  ai,
+        workQueue: make(chan string, 100),
+        stopCh:    make(chan struct{}),
+    }
+    
+    // Start 3 concurrent workers for renaming
+    for i := 0; i < 3; i++ {
+        go eng.worker()
+    }
+    
+    return eng, nil
+}
+
+// ScanDirectory walks the watch directory and stores file metadata.
+func (e *Engine) ScanDirectory() error {
+    logger.Infof("Scanning directory %s", e.cfg.WatchDir)
+    return filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
+        if err != nil {
+            logger.Errorf("walk error: %v", err)
+            return err
+        }
+        if info.IsDir() {
+            return nil
+        }
+        return e.upsertFile(p, info.Name(), info.Size(), info.ModTime(), "", "")
+    })
+}
+
+func (e *Engine) upsertFile(path string, originalName string, size int64, modTime time.Time, metadata string, context string) error {
+    stmt := `INSERT INTO files (path, original_name, size, mod_time, metadata, context) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(path) DO UPDATE SET original_name=excluded.original_name, size=excluded.size, mod_time=excluded.mod_time, metadata=excluded.metadata, context=excluded.context;`
+    _, err := e.db.Exec(stmt, path, originalName, size, modTime.Unix(), metadata, context)
+    if err != nil {
+        logger.Errorf("upsert %s: %v", path, err)
+    }
+    return err
+}
+
+// RegisterWatcher sets up a filesystem watcher that enqueues changed files.
+func (e *Engine) RegisterWatcher() error {
+    if e.watcher != nil {
+        e.watcher.Close()
+    }
+    w, err := fsnotify.NewWatcher()
+    if err != nil {
+        return err
+    }
+    e.watcher = w
+    go e.watchLoop()
+    return filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+        if info.IsDir() {
+            return w.Add(p)
+        }
+        return nil
+    })
+}
+
+// OrganizeDirectory queues all existing files in the directory for processing
+func (e *Engine) OrganizeDirectory() error {
+    logger.Infof("Queuing directory %s for organization", e.cfg.WatchDir)
+    go func() {
+        count := 0
+        filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
+            if err != nil {
+                return err
+            }
+            if !info.IsDir() {
+                // Blocking send ensures we don't drop files if queue fills up
+                e.workQueue <- p
+                count++
+            }
+            return nil
+        })
+        logger.Infof("Successfully queued %d files for organization.", count)
+    }()
+    return nil
+}
+
+func (e *Engine) watchLoop() {
+    defer e.watcher.Close()
+    for {
+        select {
+        case event, ok := <-e.watcher.Events:
+            if !ok {
+                return
+            }
+            if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
+                // Process created or modified file
+                go e.handleFile(event.Name)
+            }
+        case err, ok := <-e.watcher.Errors:
+            if ok {
+                logger.Errorf("watcher error: %v", err)
+            }
+        }
+    }
+}
+
+func (e *Engine) Enqueue(path string) {
+    select {
+    case e.workQueue <- path:
+        logger.Infof("Enqueued %s", path)
+    default:
+        logger.Errorf("Queue full, dropping event for %s", path)
+    }
+}
+
+func (e *Engine) worker() {
+    for {
+        select {
+        case <-e.stopCh:
+            return
+        case path := <-e.workQueue:
+            e.handleFile(path)
+        }
+    }
+}
+
+func (e *Engine) handleFile(path string) {
+    // Call AI to get a new name, metadata, and context
+    ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2) // longer timeout for CLI
+    defer cancel()
+    
+    res, err := e.aiClient.Analyze(ctx, path)
+    if err != nil {
+        logger.Errorf("AI analyze error for %s: %v", path, err)
+        return
+    }
+    if res.NewName == "" {
+        logger.Infof("AI returned empty name for %s, skipping", path)
+        return
+    }
+    
+    originalName := filepath.Base(path)
+    dir := filepath.Dir(path)
+    ext := filepath.Ext(path)
+    dest := filepath.Join(dir, res.NewName+ext)
+    
+    if err := os.Rename(path, dest); err != nil {
+        logger.Errorf("rename %s->%s failed: %v", path, dest, err)
+        return
+    }
+    logger.Infof("Renamed %s to %s", path, dest)
+    
+    // Update DB with new path and metadata
+    info, err := os.Stat(dest)
+    if err == nil {
+        e.upsertFile(dest, originalName, info.Size(), info.ModTime(), res.Metadata, res.Context)
+    }
+}
+
+func (e *Engine) Close() error {
+    if e.stopCh != nil {
+        close(e.stopCh)
+    }
+    if e.watcher != nil {
+        e.watcher.Close()
+    }
+    return e.db.Close()
+}
