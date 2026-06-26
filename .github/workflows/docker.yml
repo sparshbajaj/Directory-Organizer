@@ -16,8 +16,8 @@ jobs:
         run: |
           git init
           git remote add origin http://sparsh:b16a297612aa45586373e2205dedeface87cd425@192.168.0.247:3002/sparsh/Directory-Organizer.git
-          git fetch --depth=1 origin ${{ github.sha }}
-          git reset --hard FETCH_HEAD
+          git fetch origin ${{ github.ref_name }}
+          git reset --hard ${{ github.sha }}
 
       - name: Log in to Gitea Container Registry
         run: |
