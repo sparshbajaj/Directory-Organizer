@@ -110,6 +110,9 @@ func (e *Engine) upsertFile(path string, originalName string, size int64, modTim
 	return err
 }
 
+// ponytail: engine has its own watcher AND internal/watcher exists — two impls, same job.
+// Collapse into one if both are active on the same dirs, but TUI only uses this one
+// and daemon only uses internal/watcher, so they don't conflict in practice.
 // RegisterWatcher sets up a filesystem watcher that enqueues changed files.
 func (e *Engine) RegisterWatcher() error {
 	if e.watcher != nil {

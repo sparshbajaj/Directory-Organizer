@@ -105,5 +105,8 @@ venv.bak/
 
 # Project Specifics
 *.exe
+vaultsort*
+organizer*
+*~
 vault/
 

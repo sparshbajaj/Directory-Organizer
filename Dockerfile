@@ -2,7 +2,6 @@
 # VaultSort Docker Image — Multi-Stage Build
 # Produces a minimal Alpine image (~25MB) with:
 #   - VaultSort daemon binary
-#   - Antigravity CLI (agy)
 # ============================================================
 
 # ---- Stage 1: Build VaultSort ----

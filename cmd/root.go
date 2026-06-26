@@ -25,5 +25,5 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.AddCommand(scanCmd)
+	// ponytail: scanCmd added in cmd/scan.go to avoid duplicate
 }

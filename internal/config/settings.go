@@ -62,12 +62,7 @@ func Load() (*Settings, error) {
 	}
 
 	// Set defaults
-	appData := os.Getenv("APPDATA")
-	if appData == "" {
-		home, _ := os.UserHomeDir()
-		appData = home
-	}
-	base := filepath.Join(appData, "DirectoryOrganizer")
+	base := filepath.Dir(SettingsPath)
 	if s.WatchDir == "" {
 		s.WatchDir = filepath.Join(base, "watch")
 	}
