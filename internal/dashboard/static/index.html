@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="VaultSort Dashboard — Real-time monitoring for your automated file organization daemon.">
+  <meta name="theme-color" content="#0a0a0f">
+  <title>VaultSort Dashboard</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-card: rgba(255, 255, 255, 0.03);
+      --bg-card-hover: rgba(255, 255, 255, 0.06);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(99, 102, 241, 0.3);
+      --text-primary: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-cyan: #22d3ee;
+      --accent-green: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-red: #f87171;
+      --accent-purple: #a78bfa;
+      --accent-blue: #60a5fa;
+      --accent-indigo: #818cf8;
+      --glass-bg: rgba(255, 255, 255, 0.04);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --glass-blur: 12px;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+      --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --transition: all 0.2s ease;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-family);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Ambient background glow */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -40%;
+      left: -20%;
+      width: 80%;
+      height: 80%;
+      background: radial-gradient(ellipse, rgba(99, 102, 241, 0.06) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      bottom: -40%;
+      right: -20%;
+      width: 80%;
+      height: 80%;
+      background: radial-gradient(ellipse, rgba(34, 211, 238, 0.04) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Glass card ─────────────────────────────────────────── */
+    .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      transition: var(--transition);
+    }
+    .glass-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-glow);
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      padding: 32px 0 24px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 32px;
+    }
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .logo {
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--accent-indigo), var(--accent-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.02em;
+    }
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: rgba(52, 211, 153, 0.1);
+      border: 1px solid rgba(52, 211, 153, 0.25);
+      color: var(--accent-green);
+    }
+    .status-badge.error {
+      background: rgba(248, 113, 113, 0.1);
+      border-color: rgba(248, 113, 113, 0.25);
+      color: var(--accent-red);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    .status-badge.error .status-dot {
+      background: var(--accent-red);
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.4); }
+      50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
+    }
+    .header-info {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .header-info span {
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Update Banner ──────────────────────────────────────── */
+    .update-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      margin-bottom: 24px;
+      border-radius: var(--radius);
+      background: linear-gradient(135deg, rgba(251, 191, 36, 0.12), rgba(248, 113, 113, 0.08));
+      border: 1px solid rgba(251, 191, 36, 0.25);
+      animation: fadeSlideIn 0.4s ease;
+    }
+    .update-banner.visible { display: flex; }
+    .update-banner-text {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--accent-amber);
+    }
+    .update-banner-text a {
+      color: var(--accent-cyan);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .update-banner-text a:hover { color: #fff; }
+    .update-dismiss {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: var(--transition);
+    }
+    .update-dismiss:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); }
+
+    /* ── Stats Row ──────────────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(12px);
+      animation: fadeSlideIn 0.5s ease forwards;
+    }
+    .stat-card:nth-child(1) { animation-delay: 0.05s; }
+    .stat-card:nth-child(2) { animation-delay: 0.1s; }
+    .stat-card:nth-child(3) { animation-delay: 0.15s; }
+    .stat-card:nth-child(4) { animation-delay: 0.2s; }
+    @keyframes fadeSlideIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+    .stat-card.cyan::before  { background: linear-gradient(90deg, var(--accent-cyan), transparent); }
+    .stat-card.green::before { background: linear-gradient(90deg, var(--accent-green), transparent); }
+    .stat-card.amber::before { background: linear-gradient(90deg, var(--accent-amber), transparent); }
+    .stat-card.purple::before{ background: linear-gradient(90deg, var(--accent-purple), transparent); }
+
+    .stat-icon {
+      font-size: 1.5rem;
+      margin-bottom: 8px;
+      display: block;
+    }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-card.cyan  .stat-value { color: var(--accent-cyan); }
+    .stat-card.green .stat-value { color: var(--accent-green); }
+    .stat-card.amber .stat-value { color: var(--accent-amber); }
+    .stat-card.purple .stat-value{ color: var(--accent-purple); }
+    .stat-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Directory Cards ────────────────────────────────────── */
+    .section-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dirs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .dir-card {
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .dir-path {
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.85rem;
+      color: var(--text-primary);
+      word-break: break-all;
+    }
+    .dir-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .mode-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .mode-badge.watch {
+      background: rgba(52, 211, 153, 0.12);
+      color: var(--accent-green);
+      border: 1px solid rgba(52, 211, 153, 0.2);
+    }
+    .mode-badge.interval {
+      background: rgba(96, 165, 250, 0.12);
+      color: var(--accent-blue);
+      border: 1px solid rgba(96, 165, 250, 0.2);
+    }
+    .dir-stat {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .dir-stat strong { color: var(--text-secondary); }
+    .exists-ok  { color: var(--accent-green); }
+    .exists-err { color: var(--accent-red); }
+
+    /* ── Activity Feed ──────────────────────────────────────── */
+    .activity-panel {
+      padding: 0;
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+    .activity-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border-color);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .activity-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    .filter-btns {
+      display: flex;
+      gap: 6px;
+    }
+    .filter-btn {
+      padding: 5px 14px;
+      border-radius: 9999px;
+      border: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      font-weight: 500;
+      font-family: var(--font-family);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    .filter-btn:hover {
+      border-color: var(--border-glow);
+      color: var(--text-secondary);
+      background: rgba(255,255,255,0.03);
+    }
+    .filter-btn.active {
+      background: rgba(129, 140, 248, 0.15);
+      border-color: var(--accent-indigo);
+      color: var(--accent-indigo);
+    }
+    .activity-list {
+      max-height: 420px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.08) transparent;
+    }
+    .activity-list::-webkit-scrollbar { width: 6px; }
+    .activity-list::-webkit-scrollbar-track { background: transparent; }
+    .activity-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+
+    .event-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      transition: background 0.15s ease;
+      animation: eventSlideIn 0.3s ease;
+    }
+    .event-item:hover { background: rgba(255,255,255,0.02); }
+    @keyframes eventSlideIn {
+      from { opacity: 0; transform: translateX(-10px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .event-time {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      min-width: 64px;
+      padding-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+    .event-type-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 10px;
+      border-radius: 9999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .event-type-badge.file_moved       { background: rgba(52,211,153,0.12); color: var(--accent-green); }
+    .event-type-badge.file_detected    { background: rgba(34,211,238,0.12); color: var(--accent-cyan); }
+    .event-type-badge.file_processing  { background: rgba(251,191,36,0.12); color: var(--accent-amber); }
+    .event-type-badge.file_error       { background: rgba(248,113,113,0.12); color: var(--accent-red); }
+    .event-type-badge.watcher_started  { background: rgba(96,165,250,0.12); color: var(--accent-blue); }
+    .event-type-badge.scheduler_tick   { background: rgba(100,116,139,0.12); color: var(--text-muted); }
+    .event-type-badge.system_start     { background: rgba(167,139,250,0.12); color: var(--accent-purple); }
+    .event-type-badge.update_available { background: rgba(251,191,36,0.12); color: var(--accent-amber); }
+    .event-detail {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      line-height: 1.45;
+      flex: 1;
+      min-width: 0;
+      word-break: break-word;
+    }
+    .activity-empty {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    /* ── History Table ──────────────────────────────────────── */
+    .history-panel {
+      padding: 0;
+      margin-bottom: 40px;
+      overflow: hidden;
+    }
+    .history-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.08) transparent;
+    }
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .history-table th {
+      text-align: left;
+      padding: 12px 16px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-size: 0.72rem;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--border-color);
+      white-space: nowrap;
+    }
+    .history-table td {
+      padding: 11px 16px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      white-space: nowrap;
+    }
+    .history-table tbody tr:nth-child(even) {
+      background: rgba(255,255,255,0.015);
+    }
+    .history-table tbody tr:hover {
+      background: rgba(255,255,255,0.04);
+    }
+    .status-success {
+      color: var(--accent-green);
+      font-weight: 600;
+    }
+    .status-error {
+      color: var(--accent-red);
+      font-weight: 600;
+    }
+    .history-empty {
+      text-align: center;
+      padding: 36px 20px;
+      color: var(--text-muted);
+    }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 24px 0 32px;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      border-top: 1px solid var(--border-color);
+    }
+
+    /* ── Responsive ─────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .header-inner { flex-direction: column; align-items: flex-start; }
+      .header-meta { width: 100%; justify-content: flex-start; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .dirs-grid { grid-template-columns: 1fr; }
+      .event-item { flex-wrap: wrap; gap: 6px; }
+      .filter-btns { flex-wrap: wrap; }
+      .stat-value { font-size: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+
+    <!-- Update Banner -->
+    <div id="updateBanner" class="update-banner">
+      <div class="update-banner-text">
+        ⬆️ <span id="updateText">Update available</span>
+      </div>
+      <button class="update-dismiss" onclick="document.getElementById('updateBanner').classList.remove('visible')" aria-label="Dismiss">&times;</button>
+    </div>
+
+    <!-- Header -->
+    <header>
+      <div class="header-inner">
+        <h1 class="logo">🗂️ VaultSort</h1>
+        <div class="header-meta">
+          <div id="statusBadge" class="status-badge">
+            <span class="status-dot"></span>
+            <span id="statusText">Connecting…</span>
+          </div>
+          <div class="header-info">Uptime: <span id="uptimeDisplay">—</span></div>
+          <div class="header-info">Version: <span id="versionDisplay">—</span></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Stats Row -->
+    <section class="stats-grid" aria-label="Statistics">
+      <div class="glass-card stat-card cyan">
+        <span class="stat-icon">📄</span>
+        <div class="stat-value" id="statFilesToday">0</div>
+        <div class="stat-label">Files Processed Today</div>
+      </div>
+      <div class="glass-card stat-card green">
+        <span class="stat-icon">📁</span>
+        <div class="stat-value" id="statTotalFiles">0</div>
+        <div class="stat-label">Total Files Organized</div>
+      </div>
+      <div class="glass-card stat-card amber">
+        <span class="stat-icon">⚠️</span>
+        <div class="stat-value" id="statErrorsToday">0</div>
+        <div class="stat-label">Errors Today</div>
+      </div>
+      <div class="glass-card stat-card purple">
+        <span class="stat-icon">👁️</span>
+        <div class="stat-value" id="statDirsMonitored">0</div>
+        <div class="stat-label">Directories Monitored</div>
+      </div>
+    </section>
+
+    <!-- Directory Cards -->
+    <section aria-label="Monitored Directories">
+      <h2 class="section-title">📂 Monitored Directories</h2>
+      <div id="dirsGrid" class="dirs-grid">
+        <!-- populated by JS -->
+      </div>
+    </section>
+
+    <!-- Live Activity Feed -->
+    <section aria-label="Live Activity">
+      <div class="glass-card activity-panel">
+        <div class="activity-header">
+          <div class="activity-title">
+            <span class="live-dot"></span>
+            Live Activity
+          </div>
+          <div class="filter-btns">
+            <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+            <button class="filter-btn" data-filter="moved" onclick="setFilter('moved', this)">Moved</button>
+            <button class="filter-btn" data-filter="errors" onclick="setFilter('errors', this)">Errors</button>
+            <button class="filter-btn" data-filter="system" onclick="setFilter('system', this)">System</button>
+          </div>
+        </div>
+        <div class="activity-list" id="activityList">
+          <div class="activity-empty" id="activityEmpty">Waiting for events…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- File Movement History -->
+    <section aria-label="File Movement History">
+      <div class="glass-card history-panel">
+        <div class="history-header">📋 File Movement History</div>
+        <div class="table-wrap">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Original Name</th>
+                <th>New Name</th>
+                <th>Directory</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="historyBody">
+              <tr><td colspan="5" class="history-empty">No file movements recorded yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      VaultSort &mdash; Automated File Organization Daemon
+    </footer>
+
+  </div>
+
+  <script>
+    /* ================================================================
+       VaultSort Dashboard — Inline JavaScript
+       ================================================================ */
+
+    // ── State ──────────────────────────────────────────────────
+    let uptimeSeconds = 0;
+    let uptimeInterval = null;
+    let sseRetryTimeout = null;
+    let currentFilter = 'all';
+    const MAX_FEED_EVENTS = 200;
+    const allEvents = []; // master event list for filtering
+
+    // ── Helpers ────────────────────────────────────────────────
+    function relativeTime(isoStr) {
+      if (!isoStr) return '—';
+      const then = new Date(isoStr);
+      const diff = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
+      if (diff < 5)    return 'just now';
+      if (diff < 60)   return diff + 's ago';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400)return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    function formatTime(isoStr) {
+      if (!isoStr) return '—';
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function formatUptimeHuman(seconds) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      if (h > 0) return h + 'h ' + m + 'm ' + s + 's';
+      if (m > 0) return m + 'm ' + s + 's';
+      return s + 's';
+    }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+
+    async function apiFetch(path) {
+      try {
+        const r = await fetch(path);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+      } catch (e) {
+        console.warn('API error:', path, e);
+        return null;
+      }
+    }
+
+    // ── Type → filter category mapping ─────────────────────────
+    function eventCategory(type) {
+      if (type === 'file_moved') return 'moved';
+      if (type === 'file_error') return 'errors';
+      if (['watcher_started', 'scheduler_tick', 'system_start', 'update_available'].includes(type)) return 'system';
+      return 'other';
+    }
+
+    function eventMatchesFilter(type) {
+      if (currentFilter === 'all') return true;
+      return eventCategory(type) === currentFilter;
+    }
+
+    // ── Type badge label ───────────────────────────────────────
+    function typeLabel(type) {
+      return (type || 'unknown').replace(/_/g, ' ');
+    }
+
+    function getEventDetail(evt) {
+      // Try common event data fields
+      const d = evt.data || evt.detail || evt.payload || {};
+      if (typeof d === 'string') return d;
+      if (d.message) return d.message;
+      if (d.src && d.dst) return d.src + ' → ' + d.dst;
+      if (d.src || d.path || d.file) return d.src || d.path || d.file;
+      if (d.error) return d.error;
+      if (d.dir) return d.dir;
+      // Fallback: stringify non-empty data
+      const keys = Object.keys(d);
+      if (keys.length > 0) return JSON.stringify(d);
+      return evt.type || '';
+    }
+
+    // ── Render helpers ─────────────────────────────────────────
+    function createEventEl(evt) {
+      const div = document.createElement('div');
+      div.className = 'event-item';
+      const type = evt.type || 'unknown';
+      div.dataset.type = type;
+      div.dataset.category = eventCategory(type);
+
+      if (!eventMatchesFilter(type)) {
+        div.style.display = 'none';
+      }
+
+      div.innerHTML =
+        '<span class="event-time">' + relativeTime(evt.timestamp || evt.time) + '</span>' +
+        '<span class="event-type-badge ' + escapeHtml(type) + '">' + escapeHtml(typeLabel(type)) + '</span>' +
+        '<span class="event-detail">' + escapeHtml(getEventDetail(evt)) + '</span>';
+
+      return div;
+    }
+
+    // ── Status ─────────────────────────────────────────────────
+    async function fetchStatus() {
+      const data = await apiFetch('/api/status');
+      if (!data) {
+        document.getElementById('statusBadge').className = 'status-badge error';
+        document.getElementById('statusText').textContent = 'Error';
+        return;
+      }
+      document.getElementById('statusBadge').className = 'status-badge';
+      document.getElementById('statusText').textContent = data.status === 'running' ? 'Running' : data.status;
+      document.getElementById('versionDisplay').textContent = data.version || '—';
+      uptimeSeconds = data.uptime_seconds || 0;
+      document.getElementById('uptimeDisplay').textContent = formatUptimeHuman(uptimeSeconds);
+
+      if (!uptimeInterval) {
+        uptimeInterval = setInterval(function () {
+          uptimeSeconds++;
+          document.getElementById('uptimeDisplay').textContent = formatUptimeHuman(uptimeSeconds);
+        }, 1000);
+      }
+    }
+
+    // ── Stats ──────────────────────────────────────────────────
+    async function fetchStats() {
+      const data = await apiFetch('/api/stats');
+      if (!data) return;
+      document.getElementById('statFilesToday').textContent   = data.files_today   ?? data.processed_today ?? 0;
+      document.getElementById('statTotalFiles').textContent   = data.total_files    ?? data.total_processed ?? 0;
+      document.getElementById('statErrorsToday').textContent  = data.errors_today   ?? 0;
+      document.getElementById('statDirsMonitored').textContent= data.dirs_monitored ?? data.directories     ?? 0;
+    }
+
+    // ── Directories ────────────────────────────────────────────
+    async function fetchDirs() {
+      const data = await apiFetch('/api/dirs');
+      const grid = document.getElementById('dirsGrid');
+      grid.innerHTML = '';
+      if (!data || !data.length) {
+        grid.innerHTML = '<div class="glass-card dir-card"><span class="dir-path" style="color:var(--text-muted)">No monitored directories.</span></div>';
+        return;
+      }
+      data.forEach(function (d) {
+        const card = document.createElement('div');
+        card.className = 'glass-card dir-card';
+        const modeClass = (d.mode || '').toLowerCase() === 'interval' ? 'interval' : 'watch';
+        const modeText  = modeClass === 'interval' ? 'Interval' : 'Watch';
+        const existsEl  = d.exists
+          ? '<span class="exists-ok">✓ Exists</span>'
+          : '<span class="exists-err">✗ Missing</span>';
+        card.innerHTML =
+          '<div class="dir-path">' + escapeHtml(d.path) + '</div>' +
+          '<div class="dir-meta">' +
+            '<span class="mode-badge ' + modeClass + '">' + modeText + '</span>' +
+            '<span class="dir-stat"><strong>' + (d.file_count ?? 0) + '</strong> files</span>' +
+            existsEl +
+          '</div>';
+        grid.appendChild(card);
+      });
+      // Also update the stat card
+      document.getElementById('statDirsMonitored').textContent = data.length;
+    }
+
+    // ── File Movement History ──────────────────────────────────
+    async function fetchHistory() {
+      const data = await apiFetch('/api/events?type=file_moved&limit=50');
+      const tbody = document.getElementById('historyBody');
+      if (!data || !data.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="history-empty">No file movements recorded yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = '';
+      data.forEach(function (evt) {
+        const d = evt.data || evt.detail || evt.payload || {};
+        const tr = document.createElement('tr');
+        const status = (evt.type === 'file_error' || (d.error))
+          ? '<span class="status-error">Error</span>'
+          : '<span class="status-success">Success</span>';
+        tr.innerHTML =
+          '<td>' + formatTime(evt.timestamp || evt.time) + '</td>' +
+          '<td>' + escapeHtml(d.original_name || d.src || d.file || '—') + '</td>' +
+          '<td>' + escapeHtml(d.new_name || d.dst || '—') + '</td>' +
+          '<td>' + escapeHtml(d.directory || d.dir || '—') + '</td>' +
+          '<td>' + status + '</td>';
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ── Update Check ───────────────────────────────────────────
+    async function fetchUpdate() {
+      const data = await apiFetch('/api/update');
+      if (!data || !data.has_update) return;
+      const banner = document.getElementById('updateBanner');
+      const latest = data.latest || {};
+      let text = 'Update available: ' + (latest.tag_name || latest.version || 'new version');
+      if (latest.html_url) {
+        text += ' — <a href="' + escapeHtml(latest.html_url) + '" target="_blank" rel="noopener">View release</a>';
+      }
+      document.getElementById('updateText').innerHTML = '⬆️ ' + text;
+      banner.classList.add('visible');
+    }
+
+    // ── Activity Feed ──────────────────────────────────────────
+    function addEventToFeed(evt) {
+      allEvents.unshift(evt);
+      if (allEvents.length > MAX_FEED_EVENTS) allEvents.pop();
+
+      const list = document.getElementById('activityList');
+      const empty = document.getElementById('activityEmpty');
+      if (empty) empty.remove();
+
+      const el = createEventEl(evt);
+      list.prepend(el);
+
+      // Enforce DOM limit
+      while (list.children.length > MAX_FEED_EVENTS) {
+        list.removeChild(list.lastChild);
+      }
+    }
+
+    async function fetchInitialEvents() {
+      const data = await apiFetch('/api/events?limit=100');
+      if (!data || !data.length) return;
+      // Events come newest-first from API; reverse to add oldest first
+      const sorted = data.slice().reverse();
+      sorted.forEach(function (evt) { addEventToFeed(evt); });
+    }
+
+    // ── Filters ────────────────────────────────────────────────
+    function setFilter(filter, btnEl) {
+      currentFilter = filter;
+      // Update button states
+      document.querySelectorAll('.filter-btn').forEach(function (b) {
+        b.classList.toggle('active', b === btnEl);
+      });
+      // Show/hide events
+      document.querySelectorAll('.event-item').forEach(function (el) {
+        if (filter === 'all') {
+          el.style.display = '';
+        } else {
+          el.style.display = el.dataset.category === filter ? '' : 'none';
+        }
+      });
+    }
+
+    // ── SSE ────────────────────────────────────────────────────
+    let eventSource = null;
+
+    function connectSSE() {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      try {
+        eventSource = new EventSource('/api/events/stream');
+
+        eventSource.onmessage = function (e) {
+          try {
+            const evt = JSON.parse(e.data);
+            addEventToFeed(evt);
+            // Live-update stats on relevant events
+            if (['file_moved', 'file_detected', 'file_processing', 'file_error'].includes(evt.type)) {
+              fetchStats();
+            }
+          } catch (err) {
+            console.warn('SSE parse error:', err);
+          }
+        };
+
+        eventSource.onerror = function () {
+          eventSource.close();
+          eventSource = null;
+          console.warn('SSE disconnected, reconnecting in 5s…');
+          if (sseRetryTimeout) clearTimeout(sseRetryTimeout);
+          sseRetryTimeout = setTimeout(connectSSE, 5000);
+        };
+      } catch (err) {
+        console.warn('SSE connect error:', err);
+        if (sseRetryTimeout) clearTimeout(sseRetryTimeout);
+        sseRetryTimeout = setTimeout(connectSSE, 5000);
+      }
+    }
+
+    // ── Periodic refresh ───────────────────────────────────────
+    function startPeriodicRefresh() {
+      setInterval(function () {
+        fetchStats();
+        fetchDirs();
+      }, 30000);
+    }
+
+    // ── Relative-time updater (refresh timestamps every 30s) ──
+    function refreshRelativeTimes() {
+      document.querySelectorAll('.event-time').forEach(function (el, i) {
+        if (allEvents[i] && (allEvents[i].timestamp || allEvents[i].time)) {
+          el.textContent = relativeTime(allEvents[i].timestamp || allEvents[i].time);
+        }
+      });
+    }
+    setInterval(refreshRelativeTimes, 30000);
+
+    // ── Boot ───────────────────────────────────────────────────
+    (async function init() {
+      await fetchStatus();
+      fetchStats();
+      fetchDirs();
+      fetchHistory();
+      fetchUpdate();
+      await fetchInitialEvents();
+      connectSSE();
+      startPeriodicRefresh();
+    })();
+  </script>
+
+</body>
+</html>

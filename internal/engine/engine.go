@@ -2,27 +2,29 @@
 package engine
 
 import (
-    "context"
-    "database/sql"
-    "fmt"
-    "os"
-    "path/filepath"
-    "time"
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
-    "github.com/fsnotify/fsnotify"
-    "github.com/sparshbajaj/directory-organizer/internal/aiclient"
-    "github.com/sparshbajaj/directory-organizer/internal/config"
-    "github.com/sparshbajaj/directory-organizer/internal/logger"
-    _ "modernc.org/sqlite"
+	"github.com/fsnotify/fsnotify"
+	"github.com/sparshbajaj/directory-organizer/internal/aiclient"
+	"github.com/sparshbajaj/directory-organizer/internal/config"
+	"github.com/sparshbajaj/directory-organizer/internal/events"
+	"github.com/sparshbajaj/directory-organizer/internal/logger"
+	_ "modernc.org/sqlite"
 )
 
 type Engine struct {
-    db        *sql.DB
-    cfg       *config.Settings
-    aiClient  *aiclient.Client
-    watcher   *fsnotify.Watcher
-    workQueue chan string
-    stopCh    chan struct{}
+	db        *sql.DB
+	cfg       *config.Settings
+	aiClient  *aiclient.Client
+	watcher   *fsnotify.Watcher
+	workQueue chan string
+	stopCh    chan struct{}
+	bus       *events.Bus
 }
 
 // NewEngine creates a new Engine instance, initializing DB and AI client.
@@ -41,7 +43,6 @@ func NewEngine(cfg *config.Settings) (*Engine, error) {
     }
     // Initialise schema
     schema := `
-    DROP TABLE IF EXISTS files;
     CREATE TABLE IF NOT EXISTS files (
         path TEXT PRIMARY KEY,
         original_name TEXT,
@@ -71,7 +72,12 @@ func NewEngine(cfg *config.Settings) (*Engine, error) {
         go eng.worker()
     }
     
-    return eng, nil
+	return eng, nil
+}
+
+// SetBus attaches an event bus to the engine for emitting file processing events.
+func (e *Engine) SetBus(bus *events.Bus) {
+	e.bus = bus
 }
 
 // ScanDirectory walks the watch directory and stores file metadata.
@@ -183,36 +189,77 @@ func (e *Engine) worker() {
 }
 
 func (e *Engine) handleFile(path string) {
-    // Call AI to get a new name, metadata, and context
-    ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2) // longer timeout for CLI
-    defer cancel()
-    
-    res, err := e.aiClient.Analyze(ctx, path)
-    if err != nil {
-        logger.Errorf("AI analyze error for %s: %v", path, err)
-        return
-    }
-    if res.NewName == "" {
-        logger.Infof("AI returned empty name for %s, skipping", path)
-        return
-    }
-    
-    originalName := filepath.Base(path)
-    dir := filepath.Dir(path)
-    ext := filepath.Ext(path)
-    dest := filepath.Join(dir, res.NewName+ext)
-    
-    if err := os.Rename(path, dest); err != nil {
-        logger.Errorf("rename %s->%s failed: %v", path, dest, err)
-        return
-    }
-    logger.Infof("Renamed %s to %s", path, dest)
-    
-    // Update DB with new path and metadata
-    info, err := os.Stat(dest)
-    if err == nil {
-        e.upsertFile(dest, originalName, info.Size(), info.ModTime(), res.Metadata, res.Context)
-    }
+	// Emit processing event
+	if e.bus != nil {
+		e.bus.Emit(events.Event{
+			Type:     events.EventFileProcessing,
+			Source:   filepath.Dir(path),
+			Detail:   fmt.Sprintf("Processing %s", filepath.Base(path)),
+			Metadata: map[string]string{"path": path},
+		})
+	}
+
+	// Call AI to get a new name, metadata, and context
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2) // longer timeout for CLI
+	defer cancel()
+
+	res, err := e.aiClient.Analyze(ctx, path)
+	if err != nil {
+		logger.Errorf("AI analyze error for %s: %v", path, err)
+		if e.bus != nil {
+			e.bus.Emit(events.Event{
+				Type:     events.EventFileError,
+				Source:   filepath.Dir(path),
+				Detail:   fmt.Sprintf("AI error for %s: %v", filepath.Base(path), err),
+				Metadata: map[string]string{"path": path, "error": err.Error()},
+			})
+		}
+		return
+	}
+	if res.NewName == "" {
+		logger.Infof("AI returned empty name for %s, skipping", path)
+		return
+	}
+
+	originalName := filepath.Base(path)
+	dir := filepath.Dir(path)
+	ext := filepath.Ext(path)
+	dest := filepath.Join(dir, res.NewName+ext)
+
+	if err := os.Rename(path, dest); err != nil {
+		logger.Errorf("rename %s->%s failed: %v", path, dest, err)
+		if e.bus != nil {
+			e.bus.Emit(events.Event{
+				Type:     events.EventFileError,
+				Source:   dir,
+				Detail:   fmt.Sprintf("Rename failed: %s -> %s: %v", originalName, res.NewName+ext, err),
+				Metadata: map[string]string{"path": path, "error": err.Error()},
+			})
+		}
+		return
+	}
+	logger.Infof("Renamed %s to %s", path, dest)
+
+	// Emit success event
+	if e.bus != nil {
+		e.bus.Emit(events.Event{
+			Type:   events.EventFileMoved,
+			Source: dir,
+			Detail: fmt.Sprintf("%s -> %s", originalName, res.NewName+ext),
+			Metadata: map[string]string{
+				"original_path": path,
+				"new_path":      dest,
+				"new_name":      res.NewName + ext,
+				"original_name": originalName,
+			},
+		})
+	}
+
+	// Update DB with new path and metadata
+	info, err := os.Stat(dest)
+	if err == nil {
+		e.upsertFile(dest, originalName, info.Size(), info.ModTime(), res.Metadata, res.Context)
+	}
 }
 
 func (e *Engine) Close() error {

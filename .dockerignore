@@ -1,0 +1,30 @@
+# VaultSort Docker Ignore
+.git
+.gitignore
+*.exe
+*.db
+*.log
+
+# IDE / Editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+organizer.exe
+data/
+
+# Documentation (not needed in image)
+README.md
+LICENSE
+SKILL.md
+vault/
+
+# Test artifacts
+*_test.go

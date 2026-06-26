@@ -1,0 +1,106 @@
+# ============================================================
+# VaultSort — Docker Compose Configuration
+# ============================================================
+#
+# Usage:
+#   docker compose up -d          # Start daemon
+#   docker compose logs -f        # Follow logs
+#   docker compose down           # Stop daemon
+#
+# Prerequisites:
+#   1. Authenticate AGY CLI on host first: run `agy` and complete OAuth
+#   2. Create your watch directories (or they'll be auto-created)
+#
+# Access dashboard at: http://localhost:8080
+# ============================================================
+
+services:
+  vaultsort:
+    build:
+      context: .
+      args:
+        - VERSION=1.0.0
+        - BUILD_TIME=${BUILD_TIME:-unknown}
+    container_name: vaultsort
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+
+    environment:
+      # Comma-separated list of directories to monitor inside the container
+      - VAULTSORT_DIRS=/data/downloads,/data/documents
+      # Trigger mode: "watch" (fsnotify), "interval" (polling), or "both"
+      - VAULTSORT_MODE=both
+      # Scan interval for interval/both modes (Go duration format)
+      - VAULTSORT_INTERVAL=5m
+      # Dashboard port
+      - VAULTSORT_PORT=8080
+      # Log level: debug, info, warn, error
+      - VAULTSORT_LOG_LEVEL=info
+      # GitHub update checks
+      - VAULTSORT_GITHUB_CHECK=true
+      - VAULTSORT_GITHUB_INTERVAL=6h
+
+    volumes:
+      # --- Mount your local directories ---
+      # Map host directories to container paths matching VAULTSORT_DIRS
+      - ./data/downloads:/data/downloads
+      - ./data/documents:/data/documents
+
+      # --- Persistent storage ---
+      # Database and vault are stored in a named volume
+      - vaultsort-data:/data
+
+      # --- AGY CLI credentials (read-only) ---
+      # Mount the host's authenticated .gemini directory
+      # Linux/Mac: ~/.gemini
+      # Windows:   %USERPROFILE%/.gemini
+      - ~/.gemini:/root/.gemini:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    # Resource limits (optional, adjust as needed)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 512M
+    #       cpus: "1.0"
+
+volumes:
+  vaultsort-data:
+    driver: local
+
+# ============================================================
+# Remote Directory Examples (uncomment and configure as needed)
+# ============================================================
+#
+# For SMB/CIFS network shares:
+#   volumes:
+#     nas-share:
+#       driver: local
+#       driver_opts:
+#         type: cifs
+#         device: "//192.168.1.100/shared"
+#         o: "username=user,password=pass,vers=3.0"
+#
+# For NFS mounts:
+#   volumes:
+#     nfs-share:
+#       driver: local
+#       driver_opts:
+#         type: nfs
+#         device: ":/exports/documents"
+#         o: "addr=192.168.1.200,rw"
+#
+# Then add to the service volumes:
+#   - nas-share:/data/nas
+#   - nfs-share:/data/nfs
+# And update VAULTSORT_DIRS to include: /data/nas,/data/nfs
+# Use VAULTSORT_MODE=both for network mounts (fsnotify won't work)
+# ============================================================
