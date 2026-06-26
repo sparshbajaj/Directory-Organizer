@@ -40,18 +40,16 @@ RUN apk add --no-cache ca-certificates tzdata curl npm
 COPY --from=builder /vaultsort /usr/local/bin/vaultsort
 
 # Create data directories
-RUN mkdir -p /data/watch /data/vault
+RUN mkdir -p /data/vault
 
 # Default environment variables
 ENV VAULTSORT_MODE="server"
-ENV VAULTSORT_INTERVAL="5m"
 ENV VAULTSORT_PORT="2345"
 ENV VAULTSORT_DB_PATH="/data/vaultsort.db"
 ENV VAULTSORT_VAULT_PATH="/data/vault"
 ENV VAULTSORT_LOG_LEVEL="info"
-ENV VAULTSORT_GITHUB_CHECK="true"
-ENV VAULTSORT_GITHUB_INTERVAL="6h"
-ENV VAULTSORT_AI_CLI=""
+ENV VAULTSORT_GITHUB_CHECK="false"
+ENV VAULTSORT_AI_CLI="opencode"
 ENV VAULTSORT_RULES_PATH="/data/rules.json"
 ENV VAULTSORT_KB_PATH="/data/knowledge.db"
 ENV VAULTSORT_DATA_DIR="/data"
