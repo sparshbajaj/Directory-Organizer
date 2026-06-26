@@ -16,7 +16,4 @@ services:
       - VAULTSORT_DB_PATH=/data/vaultsort.db
     volumes:
       # Map your host directories here
-      # Left side is your ZimaOS host path, right side is the container path
       - /DATA/AppData/directory-organizer:/data              # For the database and config
-      - /DATA/Downloads:/data/watch                          # The directory you want to monitor
-      - /DATA/Media/Vault:/data/vault                        # Where you want organized files to go
