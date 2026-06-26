@@ -114,24 +114,15 @@ func Save(s *Settings) error {
 func LoadFromEnv() (*Settings, error) {
 	s := &Settings{}
 
-	// VAULTSORT_DIRS (defaults to CWD)
+	// VAULTSORT_DIRS (optional — if unset, no local dirs are watched; only client dirs)
 	dirsStr := os.Getenv("VAULTSORT_DIRS")
-	if dirsStr == "" {
-		cwd, _ := os.Getwd()
-		if cwd != "" {
-			dirsStr = cwd
-		} else {
-			dirsStr = "/data/watch"
+	if dirsStr != "" {
+		for _, d := range strings.Split(dirsStr, ",") {
+			d = strings.TrimSpace(d)
+			if d != "" {
+				s.WatchDirs = append(s.WatchDirs, d)
+			}
 		}
-	}
-	for _, d := range strings.Split(dirsStr, ",") {
-		d = strings.TrimSpace(d)
-		if d != "" {
-			s.WatchDirs = append(s.WatchDirs, d)
-		}
-	}
-	if len(s.WatchDirs) == 0 {
-		return nil, fmt.Errorf("VAULTSORT_DIRS is required")
 	}
 
 	// WatchDir = first entry for backward compat
