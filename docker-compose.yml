@@ -14,10 +14,10 @@ services:
       - VAULTSORT_DIRS=/data/watch
       - VAULTSORT_VAULT_PATH=/data/vault
       - VAULTSORT_DB_PATH=/data/vaultsort.db
-      # -- AI Configuration (OpenCode / OpenRouter) --
-      - VAULTSORT_BASE_URL=https://openrouter.ai/api/v1
-      - VAULTSORT_MODEL=anthropic/claude-3.5-sonnet
-      - VAULTSORT_API_KEY=your_opencode_api_key_here
+      # -- AI Configuration (FreeLLM API) --
+      - VAULTSORT_BASE_URL=http://192.168.0.247:3001/v1
+      - VAULTSORT_MODEL=auto
+      - VAULTSORT_API_KEY=freellmapi-5e3541b50ae9df763eace3d9df0d5a58e2a6d2994973ece7
     volumes:
       # Map your host directories here
       - /DATA/AppData/directory-organizer:/data              # For the database and config
