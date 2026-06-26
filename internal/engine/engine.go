@@ -35,8 +35,10 @@ func NewEngine(cfg *config.Settings) (*Engine, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0755); err != nil {
 		return nil, fmt.Errorf("mkdir db dir: %w", err)
 	}
-	if err := os.MkdirAll(cfg.WatchDir, 0755); err != nil {
-		return nil, fmt.Errorf("mkdir watch dir: %w", err)
+	if cfg.WatchDir != "" {
+		if err := os.MkdirAll(cfg.WatchDir, 0755); err != nil {
+			return nil, fmt.Errorf("mkdir watch dir: %w", err)
+		}
 	}
 	db, err := sql.Open("sqlite", cfg.DBPath)
 	if err != nil {
@@ -171,7 +173,7 @@ func (e *Engine) OrganizeDirectory() error {
 }
 
 func (e *Engine) BuildKB() {
-	if e.kb == nil {
+	if e.kb == nil || e.cfg.WatchDir == "" {
 		return
 	}
 	logger.Info("Building knowledge graph...")
