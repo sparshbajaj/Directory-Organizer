@@ -126,7 +126,9 @@ func LoadFromEnv() (*Settings, error) {
 	}
 
 	// WatchDir = first entry for backward compat
-	s.WatchDir = s.WatchDirs[0]
+	if len(s.WatchDirs) > 0 {
+		s.WatchDir = s.WatchDirs[0]
+	}
 
 	// VAULTSORT_MODE (default "watch")
 	s.Mode = os.Getenv("VAULTSORT_MODE")
