@@ -40,17 +40,20 @@ func init() {
 }
 
 func runClient(cmd *cobra.Command, args []string) error {
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		return fmt.Errorf("config: %w", err)
-	}
+	var cfg *config.Settings
 
-	// CLI flags override env vars
-	if clientServer != "" {
-		cfg.ServerURL = clientServer
-	}
-	if len(clientDirs) > 0 {
-		cfg.WatchDirs = clientDirs
+	// CLI flags take priority over env vars
+	if clientServer != "" || len(clientDirs) > 0 {
+		cfg = &config.Settings{
+			ServerURL: clientServer,
+			WatchDirs: clientDirs,
+		}
+	} else {
+		var err error
+		cfg, err = config.LoadFromEnv()
+		if err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
 	}
 
 	if cfg.ServerURL == "" {
