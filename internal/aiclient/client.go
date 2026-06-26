@@ -33,6 +33,15 @@ Output ONLY a raw JSON object with the keys: new_name, metadata, context.
 Do not output any markdown formatting or extra text.`, filePath)
 
     args := []string{"-p", prompt, "-o", "text", "-y"}
+    if c.cfg.APIKey != "" {
+        args = append(args, "--api-key", c.cfg.APIKey)
+    }
+    if c.cfg.Model != "" {
+        args = append(args, "--model", c.cfg.Model)
+    }
+    if c.cfg.BaseURL != "" && c.cfg.BaseURL != "http://localhost:11434/v1" {
+        args = append(args, "--base-url", c.cfg.BaseURL)
+    }
 
     // Retry logic
     attempts := c.cfg.Retries + 1
