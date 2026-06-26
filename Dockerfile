@@ -27,14 +27,7 @@ RUN go build \
     -o /vaultsort \
     ./main.go
 
-# ---- Stage 2: Install Antigravity CLI ----
-FROM alpine:3.21 AS agy-installer
-
-RUN apk add --no-cache curl ca-certificates bash
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
-    || { echo "AGY CLI install skipped"; mkdir -p /root/.local/bin; touch /root/.local/bin/agy; }
-
-# ---- Stage 3: Final Runtime Image ----
+# ---- Stage 2: Final Runtime Image ----
 FROM alpine:3.21
 
 LABEL maintainer="Sparsh Bajaj"
@@ -46,12 +39,6 @@ RUN apk add --no-cache ca-certificates tzdata
 
 # Copy binaries
 COPY --from=builder /vaultsort /usr/local/bin/vaultsort
-
-COPY --from=agy-installer /root/.local/bin/agy /usr/local/bin/agy
-# Pre-configure AGY for headless non-interactive mode
-RUN mkdir -p /root/.gemini/antigravity-cli && \
-    echo '{"toolPermission":"always-proceed","enableTelemetry":false}' \
-    > /root/.gemini/antigravity-cli/settings.json
 
 # Create data directories
 RUN mkdir -p /data/watch /data/vault

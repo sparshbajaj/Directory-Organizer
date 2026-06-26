@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -30,9 +31,20 @@ func New(cfg *config.Settings) (*Client, error) {
 
 // Analyze calls the configured OpenAI-compatible API to get a new filename, metadata, and context.
 func (c *Client) Analyze(ctx context.Context, filePath string) (*AIResult, error) {
-	prompt := fmt.Sprintf(`Analyze the file at %s. Extract its metadata, summarize its context, and determine a highly descriptive new filename. 
+	// ponytail: minimum viable file read
+	content, _ := os.ReadFile(filePath)
+	if len(content) > 2000 {
+		content = content[:2000]
+	}
+	contentStr := strings.ToValidUTF8(string(content), "")
+
+	prompt := fmt.Sprintf(`Analyze the file at %s.
+File contents snippet:
+%s
+
+Extract its metadata, summarize its context, and determine a highly descriptive new filename. 
 Output ONLY a raw JSON object with the keys: new_name, metadata, context. 
-Do not output any markdown formatting or extra text.`, filePath)
+Do not output any markdown formatting or extra text.`, filePath, contentStr)
 
 	baseURL := c.cfg.BaseURL
 	if baseURL == "" {

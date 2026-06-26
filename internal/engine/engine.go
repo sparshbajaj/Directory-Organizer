@@ -265,6 +265,14 @@ func (e *Engine) handleFile(path string) {
 	if err == nil {
 		e.upsertFile(dest, originalName, info.Size(), info.ModTime(), res.Metadata, res.Context)
 	}
+
+	// ponytail: minimal vault generation
+	if e.cfg.VaultPath != "" {
+		os.MkdirAll(e.cfg.VaultPath, 0755)
+		vContent := fmt.Sprintf("# %s\n\n**Original Path:** %s\n**Date Organized:** %s\n**Metadata:** %s\n\n## Context\n%s",
+			res.NewName, path, time.Now().Format("2006-01-02"), res.Metadata, res.Context)
+		os.WriteFile(filepath.Join(e.cfg.VaultPath, res.NewName+".md"), []byte(vContent), 0644)
+	}
 }
 
 func (e *Engine) Close() error {
