@@ -80,6 +80,11 @@ func (e *Engine) SetBus(bus *events.Bus) {
 	e.bus = bus
 }
 
+// AIClient returns the initialized AI client.
+func (e *Engine) AIClient() *aiclient.Client {
+	return e.aiClient
+}
+
 // ScanDirectory walks the watch directory and stores file metadata.
 func (e *Engine) ScanDirectory() error {
     logger.Infof("Scanning directory %s", e.cfg.WatchDir)

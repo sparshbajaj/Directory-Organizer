@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sparshbajaj/directory-organizer/internal/aiclient"
 	"github.com/sparshbajaj/directory-organizer/internal/config"
 	"github.com/sparshbajaj/directory-organizer/internal/events"
 	"github.com/sparshbajaj/directory-organizer/internal/logger"
@@ -24,23 +26,25 @@ var staticFiles embed.FS
 
 // Server hosts the dashboard web UI and its API endpoints.
 type Server struct {
-	bus     *events.Bus
-	updater *updater.Updater
-	cfg     *config.Settings
-	version string
-	port    int
-	start   time.Time
+	bus      *events.Bus
+	updater  *updater.Updater
+	cfg      *config.Settings
+	aiClient *aiclient.Client
+	version  string
+	port     int
+	start    time.Time
 }
 
 // NewServer creates a dashboard server wired to the event bus, updater, and
 // application settings.
-func NewServer(bus *events.Bus, upd *updater.Updater, cfg *config.Settings, version string) *Server {
+func NewServer(bus *events.Bus, upd *updater.Updater, ai *aiclient.Client, cfg *config.Settings, version string) *Server {
 	return &Server{
-		bus:     bus,
-		updater: upd,
-		cfg:     cfg,
-		version: version,
-		start:   time.Now(),
+		bus:      bus,
+		updater:  upd,
+		aiClient: ai,
+		cfg:      cfg,
+		version:  version,
+		start:    time.Now(),
 	}
 }
 
@@ -57,6 +61,8 @@ func (s *Server) Start(ctx context.Context, port int) error {
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/dirs", s.handleDirs)
 	mux.HandleFunc("/api/update", s.handleUpdate)
+	mux.HandleFunc("/api/analyze", s.handleAnalyze)
+	mux.HandleFunc("/api/event", s.handleEventPost)
 
 	// Static files – the embedded FS has the shape static/*, so we strip the
 	// leading "static" prefix to serve from "/".
@@ -333,4 +339,90 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		resp["latest"] = release
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleAnalyze accepts a file upload, analyzes it using the AI client, and returns the result.
+func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		writeJSON(w, http.StatusNoContent, nil)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse multipart form (max 10MB memory)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to parse multipart form"})
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing 'file' in form data"})
+		return
+	}
+	defer file.Close()
+
+	// Create temp file
+	tmpDir := os.TempDir()
+	tmpPath := filepath.Join(tmpDir, "vaultsort_upload_"+header.Filename)
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create temp file"})
+		return
+	}
+	
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write temp file"})
+		return
+	}
+	out.Close()
+	defer os.Remove(tmpPath) // Cleanup
+
+	if s.aiClient == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "AI client not configured"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	
+	res, err := s.aiClient.Analyze(ctx, tmpPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleEventPost allows remote clients to emit events to the central dashboard.
+func (s *Server) handleEventPost(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		writeJSON(w, http.StatusNoContent, nil)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var evt events.Event
+	if err := json.NewDecoder(r.Body).Decode(&evt); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json payload"})
+		return
+	}
+	
+	if evt.Timestamp.IsZero() {
+		evt.Timestamp = time.Now()
+	}
+
+	if s.bus != nil {
+		s.bus.Emit(evt)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

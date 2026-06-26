@@ -47,6 +47,7 @@ type Settings struct {
 	LogLevel          string   `json:"log_level,omitempty"`
 	GitHubCheck       bool     `json:"github_check,omitempty"`
 	GitHubIntervalStr string   `json:"github_interval,omitempty"`
+	ServerURL         string   `json:"server_url,omitempty"`
 }
 
 
@@ -194,7 +195,12 @@ func LoadFromEnv() (*Settings, error) {
 	if v := os.Getenv("VAULTSORT_MODEL"); v != "" {
 		s.Model = v
 	}
+	if v := os.Getenv("VAULTSORT_GITHUB_INTERVAL"); v != "" {
+		s.GitHubIntervalStr = v
+	}
+	if v := os.Getenv("VAULTSORT_SERVER_URL"); v != "" {
+		s.ServerURL = v
+	}
 
 	return s, nil
 }
-
