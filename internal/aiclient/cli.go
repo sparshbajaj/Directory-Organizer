@@ -13,24 +13,28 @@ import (
 )
 
 var cliInstalls = map[string]struct {
-	pkg    string // npm package name
-	binary string // binary name after install
-	config string // relative dir under configHome
+	pkg      string // npm package name
+	binary   string // binary name after install
+	config   string // relative dir under configHome
+	loginCmd []string
 }{
 	"opencode": {
-		pkg:    "opencode-ai",
-		binary: "opencode",
-		config: "opencode",
+		pkg:      "opencode-ai",
+		binary:   "opencode",
+		config:   "opencode",
+		loginCmd: []string{"providers", "login"},
 	},
 	"claude": {
-		pkg:    "@anthropic-ai/claude-cli",
-		binary: "claude",
-		config: ".claude",
+		pkg:      "@anthropic-ai/claude-cli",
+		binary:   "claude",
+		config:   ".claude",
+		loginCmd: []string{"login"},
 	},
 	"antigravity": {
-		pkg:    "antigravity",
-		binary: "antigravity",
-		config: "antigravity",
+		pkg:      "antigravity",
+		binary:   "antigravity",
+		config:   "antigravity",
+		loginCmd: []string{"login"},
 	},
 }
 
@@ -127,10 +131,17 @@ func (p *CLIProvider) Login(ctx context.Context) error {
 	configDir := p.configPath()
 	os.MkdirAll(configDir, 0755)
 
+	info, ok := cliInstalls[p.name]
+	if !ok || len(info.loginCmd) == 0 {
+		fmt.Printf("⚠️  No login method configured for %s\n", p.name)
+		return nil
+	}
+
 	fmt.Printf("\n🔐 Logging into %s\n", p.name)
 	fmt.Printf("Config will be saved to %s (persists across restarts)\n", configDir)
 
-	cmd := exec.CommandContext(ctx, binary, "login")
+	args := info.loginCmd
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Env = append(os.Environ(),
 		"XDG_CONFIG_HOME="+p.configHome,
 		"HOME="+filepath.Join(p.dataDir, "home"),
@@ -222,7 +233,21 @@ After we've discussed, generate a JSON rules file at %s with the following forma
 
 Let's start by analyzing the directory.`, dir, p.rulesDB)
 
-	cmd := exec.CommandContext(ctx, binary, "-p", prompt)
+	// Try opencode-style first (run <message>)
+	runCmd := exec.CommandContext(ctx, binary, "run", prompt)
+	runCmd.Env = append(os.Environ(),
+		"XDG_CONFIG_HOME="+p.configHome,
+		"HOME="+filepath.Join(p.dataDir, "home"),
+	)
+	runCmd.Stdout = os.Stdout
+	runCmd.Stderr = os.Stderr
+	runCmd.Stdin = os.Stdin
+	if err := runCmd.Run(); err == nil {
+		return nil
+	}
+
+	// Fallback: try --prompt flag
+	cmd := exec.CommandContext(ctx, binary, "-p", prompt, dir)
 	cmd.Env = append(os.Environ(),
 		"XDG_CONFIG_HOME="+p.configHome,
 		"HOME="+filepath.Join(p.dataDir, "home"),
@@ -230,7 +255,12 @@ Let's start by analyzing the directory.`, dir, p.rulesDB)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("⚠️  Could not auto-generate rules via CLI.\n")
+		fmt.Printf("   Rules will be learned automatically as files are processed.\n")
+		fmt.Printf("   To generate rules manually, run: %s\n", binary)
+	}
+	return nil
 }
 
 func DataDir() string {
