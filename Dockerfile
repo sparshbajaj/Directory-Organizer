@@ -44,9 +44,9 @@ RUN mkdir -p /data/watch /data/vault
 
 # Default environment variables
 ENV VAULTSORT_DIRS="/data/watch"
-ENV VAULTSORT_MODE="both"
+ENV VAULTSORT_MODE="server"
 ENV VAULTSORT_INTERVAL="5m"
-ENV VAULTSORT_PORT="8080"
+ENV VAULTSORT_PORT="2345"
 ENV VAULTSORT_DB_PATH="/data/vaultsort.db"
 ENV VAULTSORT_VAULT_PATH="/data/vault"
 ENV VAULTSORT_LOG_LEVEL="info"
@@ -54,14 +54,14 @@ ENV VAULTSORT_GITHUB_CHECK="true"
 ENV VAULTSORT_GITHUB_INTERVAL="6h"
 
 # Expose dashboard port
-EXPOSE 8080
+EXPOSE 2345
 
 # Persistent data volume
 VOLUME ["/data"]
 
-# Health check via dashboard API
+# ponytail: healthcheck uses env var so it works when port is overridden
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:8080/api/status || exit 1
+    CMD sh -c "wget -qO- http://localhost:\${VAULTSORT_PORT:-2345}/api/status" || exit 1
 
 # Run the daemon
 ENTRYPOINT ["vaultsort", "daemon"]
