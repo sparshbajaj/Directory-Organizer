@@ -108,7 +108,7 @@ func (p *CLIProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("%s not found after npm install: %v", info.binary, err)
 	}
 
-	copyCmd := exec.CommandContext(ctx, "cp", which, dest)
+	copyCmd := exec.CommandContext(ctx, "cp", "-L", which, dest)
 	if err := copyCmd.Run(); err != nil {
 		return fmt.Errorf("copy binary to %s: %w", dest, err)
 	}
@@ -171,7 +171,13 @@ Do not output any markdown formatting or extra text.`, prompt, path)
 		default:
 		}
 
-		cmd := exec.CommandContext(ctx, binary, "-p", fullPrompt)
+		var args []string
+		if p.name == "opencode" {
+			args = []string{"run", fullPrompt, "--print-logs"}
+		} else {
+			args = []string{"-p", fullPrompt}
+		}
+		cmd := exec.CommandContext(ctx, binary, args...)
 		cmd.Env = append(os.Environ(),
 			"XDG_CONFIG_HOME="+p.configHome,
 			"HOME="+filepath.Join(p.dataDir, "home"),
