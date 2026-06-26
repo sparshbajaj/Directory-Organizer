@@ -13,19 +13,23 @@ import (
 )
 
 var cliInstalls = map[string]struct {
-	url    string
+	pkg    string // npm package name
+	binary string // binary name after install
 	config string // relative dir under configHome
 }{
 	"opencode": {
-		url:    "https://opencode.ai/install",
+		pkg:    "opencode-ai",
+		binary: "opencode",
 		config: "opencode",
 	},
 	"claude": {
-		url:    "https://cli.anthropic.com/install",
+		pkg:    "@anthropic-ai/claude-cli",
+		binary: "claude",
 		config: ".claude",
 	},
 	"antigravity": {
-		url:    "https://antigravity.ai/install",
+		pkg:    "antigravity",
+		binary: "antigravity",
 		config: "antigravity",
 	},
 }
@@ -80,47 +84,32 @@ func (p *CLIProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("no install method for %s", p.name)
 	}
 
-	fmt.Printf("📥 Installing %s...\n", p.name)
-
-	installScript := fmt.Sprintf(`mkdir -p /tmp/cli-install && cd /tmp/cli-install && curl -fsSL '%s' | sh`, info.url)
-	cmd := exec.CommandContext(ctx, "sh", "-c", installScript)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("install %s: %w", p.name, err)
+	dest := p.binaryPath()
+	if _, err := os.Stat(dest); err == nil {
+		fmt.Printf("✅ %s already installed at %s\n", p.name, dest)
+		return nil
 	}
 
-	which, err := exec.LookPath(p.name)
-	if err == nil {
-		dest := p.binaryPath()
-		copyCmd := exec.CommandContext(ctx, "cp", which, dest)
-		if err := copyCmd.Run(); err != nil {
-			return fmt.Errorf("copy binary: %w", err)
-		}
-		if err := os.Chmod(dest, 0755); err != nil {
-			return fmt.Errorf("chmod: %w", err)
-		}
-		fmt.Printf("✅ %s installed to %s\n", p.name, dest)
-	} else {
-		fmt.Printf("⚠️  Could not find %s in PATH after install. Trying npm...\n", p.name)
-		npmCmd := exec.CommandContext(ctx, "npm", "install", "-g", p.name)
-		npmCmd.Stdout = os.Stdout
-		npmCmd.Stderr = os.Stderr
-		if err := npmCmd.Run(); err != nil {
-			return fmt.Errorf("npm install %s failed: %w", p.name, err)
-		}
-		which, err = exec.LookPath(p.name)
-		if err != nil {
-			return fmt.Errorf("%s not found after npm install", p.name)
-		}
-		dest := p.binaryPath()
-		copyCmd := exec.CommandContext(ctx, "cp", which, dest)
-		if err := copyCmd.Run(); err != nil {
-			return fmt.Errorf("copy binary: %w", err)
-		}
-		os.Chmod(dest, 0755)
-		fmt.Printf("✅ %s installed to %s\n", p.name, dest)
+	fmt.Printf("📥 Installing %s via npm (persisted to %s)...\n", p.name, installDir)
+
+	npmCmd := exec.CommandContext(ctx, "npm", "install", "-g", info.pkg)
+	npmCmd.Stdout = os.Stdout
+	npmCmd.Stderr = os.Stderr
+	if err := npmCmd.Run(); err != nil {
+		return fmt.Errorf("npm install %s failed: %w", info.pkg, err)
 	}
+
+	which, err := exec.LookPath(info.binary)
+	if err != nil {
+		return fmt.Errorf("%s not found after npm install: %v", info.binary, err)
+	}
+
+	copyCmd := exec.CommandContext(ctx, "cp", which, dest)
+	if err := copyCmd.Run(); err != nil {
+		return fmt.Errorf("copy binary to %s: %w", dest, err)
+	}
+	os.Chmod(dest, 0755)
+	fmt.Printf("✅ %s installed to %s\n", p.name, dest)
 
 	return nil
 }
