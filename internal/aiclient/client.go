@@ -2,12 +2,14 @@
 package aiclient
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "os/exec"
-    "strings"
-    "time"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
     "github.com/sparshbajaj/directory-organizer/internal/config"
 )
@@ -26,65 +28,107 @@ func New(cfg *config.Settings) (*Client, error) {
     return &Client{cfg: cfg}, nil
 }
 
-// Analyze calls the agy CLI to get a new filename, metadata, and context.
+// Analyze calls the configured OpenAI-compatible API to get a new filename, metadata, and context.
 func (c *Client) Analyze(ctx context.Context, filePath string) (*AIResult, error) {
-    prompt := fmt.Sprintf(`Analyze the file at %s. Extract its metadata, summarize its context, and determine a highly descriptive new filename. 
+	prompt := fmt.Sprintf(`Analyze the file at %s. Extract its metadata, summarize its context, and determine a highly descriptive new filename. 
 Output ONLY a raw JSON object with the keys: new_name, metadata, context. 
 Do not output any markdown formatting or extra text.`, filePath)
 
-    args := []string{"-p", prompt, "-o", "text", "-y"}
-    if c.cfg.APIKey != "" {
-        args = append(args, "--api-key", c.cfg.APIKey)
-    }
-    if c.cfg.Model != "" {
-        args = append(args, "--model", c.cfg.Model)
-    }
-    if c.cfg.BaseURL != "" && c.cfg.BaseURL != "http://localhost:11434/v1" {
-        args = append(args, "--base-url", c.cfg.BaseURL)
-    }
+	baseURL := c.cfg.BaseURL
+	if baseURL == "" {
+		baseURL = "http://localhost:11434/v1"
+	}
+	// Ensure we hit the chat completions endpoint
+	if !strings.HasSuffix(baseURL, "/chat/completions") {
+		baseURL = strings.TrimSuffix(baseURL, "/") + "/chat/completions"
+	}
 
-    // Retry logic
-    attempts := c.cfg.Retries + 1
-    if attempts <= 0 {
-        attempts = 1
-    }
+	model := c.cfg.Model
+	if model == "" {
+		model = "auto"
+	}
 
-    var lastErr error
-    for i := 0; i < attempts; i++ {
-        cmd := exec.CommandContext(ctx, "agy", args...)
-        output, err := cmd.CombinedOutput()
-        
-        if err != nil {
-            lastErr = fmt.Errorf("agy cli error: %v, output: %s", err, string(output))
-            time.Sleep(time.Duration(c.cfg.RetryBackoff*float64(i+1)) * time.Second)
-            continue
-        }
+	reqBody := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": prompt},
+		},
+		"temperature": 0.2,
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
 
-        // Output might have surrounding backticks or spaces
-        raw := strings.TrimSpace(string(output))
-        raw = strings.TrimPrefix(raw, "```json")
-        raw = strings.TrimPrefix(raw, "```")
-        raw = strings.TrimSuffix(raw, "```")
-        raw = strings.TrimSpace(raw)
+	attempts := c.cfg.Retries + 1
+	if attempts <= 0 {
+		attempts = 1
+	}
 
-        var res AIResult
-        if err := json.Unmarshal([]byte(raw), &res); err != nil {
-            lastErr = fmt.Errorf("failed to parse AI JSON: %v, raw: %s", err, raw)
-            time.Sleep(time.Duration(c.cfg.RetryBackoff*float64(i+1)) * time.Second)
-            continue
-        }
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", baseURL, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if c.cfg.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+		}
 
-        res.NewName = sanitizeFilename(res.NewName)
-        if res.NewName == "" {
-            lastErr = fmt.Errorf("empty new_name from AI")
-            time.Sleep(time.Duration(c.cfg.RetryBackoff*float64(i+1)) * time.Second)
-            continue
-        }
+		client := &http.Client{Timeout: 2 * time.Minute}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("API request failed: %v", err)
+			time.Sleep(time.Duration(c.cfg.RetryBackoff*float64(i+1)) * time.Second)
+			continue
+		}
 
-        return &res, nil
-    }
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 
-    return nil, lastErr
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+			time.Sleep(time.Duration(c.cfg.RetryBackoff*float64(i+1)) * time.Second)
+			continue
+		}
+
+		// Parse OpenAI format
+		var aiResp struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal(respBody, &aiResp); err != nil {
+			lastErr = fmt.Errorf("failed to parse AI response: %v, body: %s", err, string(respBody))
+			continue
+		}
+		if len(aiResp.Choices) == 0 {
+			lastErr = fmt.Errorf("no choices in AI response")
+			continue
+		}
+
+		content := strings.TrimSpace(aiResp.Choices[0].Message.Content)
+		content = strings.TrimPrefix(content, "```json")
+		content = strings.TrimPrefix(content, "```")
+		content = strings.TrimSuffix(content, "```")
+		content = strings.TrimSpace(content)
+
+		var res AIResult
+		if err := json.Unmarshal([]byte(content), &res); err != nil {
+			lastErr = fmt.Errorf("failed to parse AI JSON content: %v, raw: %s", err, content)
+			continue
+		}
+
+		res.NewName = sanitizeFilename(res.NewName)
+		if res.NewName == "" {
+			lastErr = fmt.Errorf("empty new_name from AI")
+			continue
+		}
+
+		return &res, nil
+	}
+
+	return nil, lastErr
 }
 
 // Very small sanitiser to ensure filename safety
