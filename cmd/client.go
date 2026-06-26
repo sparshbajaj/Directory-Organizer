@@ -21,6 +21,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	clientServer string
+	clientDirs   []string
+)
+
 var clientCmd = &cobra.Command{
 	Use:   "client",
 	Short: "Run VaultSort in lightweight remote client mode",
@@ -29,6 +34,8 @@ var clientCmd = &cobra.Command{
 }
 
 func init() {
+	clientCmd.Flags().StringVar(&clientServer, "server", "", "VaultSort server URL (e.g. http://192.168.0.247:8080)")
+	clientCmd.Flags().StringSliceVar(&clientDirs, "dir", nil, "Directories to watch (comma-separated or repeat flag)")
 	rootCmd.AddCommand(clientCmd)
 }
 
@@ -38,12 +45,22 @@ func runClient(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("config: %w", err)
 	}
 
+	// CLI flags override env vars
+	if clientServer != "" {
+		cfg.ServerURL = clientServer
+	}
+	if len(clientDirs) > 0 {
+		cfg.WatchDirs = clientDirs
+	}
+
 	if cfg.ServerURL == "" {
-		return fmt.Errorf("VAULTSORT_SERVER_URL is required in client mode")
+		return fmt.Errorf("server URL required: pass --server or set VAULTSORT_SERVER_URL")
 	}
 	if len(cfg.WatchDirs) == 0 {
-		return fmt.Errorf("VAULTSORT_DIRS is required")
+		return fmt.Errorf("watch directories required: pass --dir or set VAULTSORT_DIRS")
 	}
+
+	hostname, _ := os.Hostname()
 
 	// Ensure directories exist
 	for _, dir := range cfg.WatchDirs {
@@ -64,14 +81,11 @@ func runClient(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 1. Let the dashboard know a client connected
-	emitRemoteEvent(cfg, events.Event{
-		Type:   events.EventSystemStart,
-		Source: "Windows Client",
-		Detail: fmt.Sprintf("Remote client connected and watching %d directories", len(cfg.WatchDirs)),
-	})
+	// Register with server and start heartbeat
+	registerClient(cfg, hostname)
+	go heartbeatLoop(cfg, hostname)
 
-	// 2. Process existing files in the background (sequentially to avoid hitting API rate limits)
+	// Process existing files in the background
 	go func() {
 		for _, d := range cfg.WatchDirs {
 			entries, _ := os.ReadDir(d)
@@ -86,6 +100,7 @@ func runClient(cmd *cobra.Command, args []string) error {
 	// Print startup banner
 	fmt.Println("╔══════════════════════════════════════════════════╗")
 	fmt.Println("║          🚀 VaultSort Remote Client             ║")
+	fmt.Printf("║  Host:      %-37s ║\n", hostname)
 	fmt.Printf("║  Server:    %-37s ║\n", cfg.ServerURL)
 	fmt.Printf("║  Dirs:      %-37d ║\n", len(cfg.WatchDirs))
 	fmt.Println("╚══════════════════════════════════════════════════╝")
@@ -120,6 +135,25 @@ func runClient(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// ponytail: lightweight HTTP heartbeat, no WebSocket needed for liveness
+func heartbeatLoop(cfg *config.Settings, hostname string) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		payload, _ := json.Marshal(map[string]string{"id": hostname, "status": "alive"})
+		http.Post(cfg.ServerURL+"/api/client/heartbeat", "application/json", bytes.NewBuffer(payload))
+	}
+}
+
+func registerClient(cfg *config.Settings, hostname string) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"id":       hostname,
+		"hostname": hostname,
+		"dirs":     cfg.WatchDirs,
+	})
+	http.Post(cfg.ServerURL+"/api/client/register", "application/json", bytes.NewBuffer(payload))
+}
+
 func emitRemoteEvent(cfg *config.Settings, evt events.Event) {
 	evt.Timestamp = time.Now()
 	b, _ := json.Marshal(evt)
@@ -127,7 +161,6 @@ func emitRemoteEvent(cfg *config.Settings, evt events.Event) {
 }
 
 func handleRemoteFile(path string, cfg *config.Settings) {
-	// Wait a moment for file write to complete
 	time.Sleep(2 * time.Second)
 
 	info, err := os.Stat(path)
@@ -144,7 +177,6 @@ func handleRemoteFile(path string, cfg *config.Settings) {
 		Metadata: map[string]string{"path": path},
 	})
 
-	// 1. Upload to server for analysis
 	file, err := os.Open(path)
 	if err != nil {
 		logger.Errorf("failed to open file %s: %v", path, err)
@@ -190,7 +222,6 @@ func handleRemoteFile(path string, cfg *config.Settings) {
 		return
 	}
 
-	// 2. Rename file locally
 	ext := filepath.Ext(path)
 	dest := filepath.Join(dir, aiRes.NewName+ext)
 
@@ -207,7 +238,6 @@ func handleRemoteFile(path string, cfg *config.Settings) {
 
 	logger.Infof("Remote renamed %s -> %s", originalName, dest)
 
-	// 3. Emit success event to server
 	emitRemoteEvent(cfg, events.Event{
 		Type:   events.EventFileMoved,
 		Source: dir,

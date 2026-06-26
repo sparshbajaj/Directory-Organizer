@@ -588,6 +588,14 @@
       </div>
     </section>
 
+    <!-- Connected Clients -->
+    <section aria-label="Connected Clients">
+      <h2 class="section-title">🖥️ Connected Clients</h2>
+      <div id="clientsGrid" class="dirs-grid">
+        <div class="glass-card dir-card"><span class="dir-path" style="color:var(--text-muted)">Waiting for clients…</span></div>
+      </div>
+    </section>
+
     <!-- Live Activity Feed -->
     <section aria-label="Live Activity">
       <div class="glass-card activity-panel">
@@ -810,6 +818,32 @@
       document.getElementById('statDirsMonitored').textContent = data.length;
     }
 
+    // ── Clients ─────────────────────────────────────────────────
+    async function fetchClients() {
+      const data = await apiFetch('/api/clients');
+      const grid = document.getElementById('clientsGrid');
+      grid.innerHTML = '';
+      if (!data || !data.length) {
+        grid.innerHTML = '<div class="glass-card dir-card"><span class="dir-path" style="color:var(--text-muted)">No clients connected.</span></div>';
+        return;
+      }
+      data.forEach(function (c) {
+        const card = document.createElement('div');
+        card.className = 'glass-card dir-card';
+        const statusColor = c.connected ? 'var(--accent-green)' : 'var(--accent-red)';
+        const statusText  = c.connected ? '● Online' : '○ Offline';
+        const dirsList = (c.dirs || []).join('<br>');
+        card.innerHTML =
+          '<div class="dir-path">' + escapeHtml(c.hostname || c.id) + '</div>' +
+          '<div class="dir-meta">' +
+            '<span class="dir-stat" style="color:' + statusColor + ';font-weight:600">' + statusText + '</span>' +
+            '<span class="dir-stat"><strong>' + (c.dirs ? c.dirs.length : 0) + '</strong> dir(s)</span>' +
+          '</div>' +
+          '<div class="dir-stat" style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">' + dirsList + '</div>';
+        grid.appendChild(card);
+      });
+    }
+
     // ── File Movement History ──────────────────────────────────
     async function fetchHistory() {
       const data = await apiFetch('/api/events?type=file_moved&limit=50');
@@ -935,6 +969,7 @@
       setInterval(function () {
         fetchStats();
         fetchDirs();
+        fetchClients();
       }, 30000);
     }
 
@@ -953,6 +988,7 @@
       await fetchStatus();
       fetchStats();
       fetchDirs();
+      fetchClients();
       fetchHistory();
       fetchUpdate();
       await fetchInitialEvents();

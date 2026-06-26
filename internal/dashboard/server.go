@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/sparshbajaj/directory-organizer/internal/aiclient"
@@ -21,18 +22,29 @@ import (
 	"github.com/sparshbajaj/directory-organizer/internal/updater"
 )
 
+// ClientInfo tracks a connected remote client.
+type ClientInfo struct {
+	ID        string   `json:"id"`
+	Hostname  string   `json:"hostname"`
+	Dirs      []string `json:"dirs"`
+	LastSeen  int64    `json:"last_seen"` // unix timestamp
+	Connected bool     `json:"connected"`
+}
+
 //go:embed static/*
 var staticFiles embed.FS
 
 // Server hosts the dashboard web UI and its API endpoints.
 type Server struct {
-	bus      *events.Bus
-	updater  *updater.Updater
-	cfg      *config.Settings
-	aiClient *aiclient.Client
-	version  string
-	port     int
-	start    time.Time
+	bus       *events.Bus
+	updater   *updater.Updater
+	cfg       *config.Settings
+	aiClient  *aiclient.Client
+	version   string
+	port      int
+	start     time.Time
+	clients   map[string]*ClientInfo
+	clientsMu sync.RWMutex
 }
 
 // NewServer creates a dashboard server wired to the event bus, updater, and
@@ -45,6 +57,7 @@ func NewServer(bus *events.Bus, upd *updater.Updater, ai *aiclient.Client, cfg *
 		cfg:      cfg,
 		version:  version,
 		start:    time.Now(),
+		clients:  make(map[string]*ClientInfo),
 	}
 }
 
@@ -63,6 +76,9 @@ func (s *Server) Start(ctx context.Context, port int) error {
 	mux.HandleFunc("/api/update", s.handleUpdate)
 	mux.HandleFunc("/api/analyze", s.handleAnalyze)
 	mux.HandleFunc("/api/event", s.handleEventPost)
+	mux.HandleFunc("/api/client/register", s.handleClientRegister)
+	mux.HandleFunc("/api/client/heartbeat", s.handleClientHeartbeat)
+	mux.HandleFunc("/api/clients", s.handleClients)
 
 	// Static files – the embedded FS has the shape static/*, so we strip the
 	// leading "static" prefix to serve from "/".
@@ -77,6 +93,9 @@ func (s *Server) Start(ctx context.Context, port int) error {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// Stale client cleanup every 30s
+	go s.cleanupClients(ctx)
 
 	go func() {
 		<-ctx.Done()
@@ -425,4 +444,102 @@ func (s *Server) handleEventPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ponytail: in-memory client registry — no DB needed, resets on restart
+func (s *Server) handleClientRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		writeJSON(w, http.StatusNoContent, nil)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var info ClientInfo
+	if err := json.NewDecoder(r.Body).Decode(&info); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if info.ID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
+		return
+	}
+
+	s.clientsMu.Lock()
+	s.clients[info.ID] = &ClientInfo{
+		ID:        info.ID,
+		Hostname:  info.Hostname,
+		Dirs:      info.Dirs,
+		LastSeen:  time.Now().Unix(),
+		Connected: true,
+	}
+	s.clientsMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "registered"})
+}
+
+func (s *Server) handleClientHeartbeat(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		writeJSON(w, http.StatusNoContent, nil)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var hb struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&hb); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	s.clientsMu.Lock()
+	if c, ok := s.clients[hb.ID]; ok {
+		c.LastSeen = time.Now().Unix()
+		c.Connected = true
+	}
+	s.clientsMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
+	s.clientsMu.RLock()
+	list := make([]*ClientInfo, 0, len(s.clients))
+	for _, c := range s.clients {
+		list = append(list, c)
+	}
+	s.clientsMu.RUnlock()
+
+	if list == nil {
+		list = []*ClientInfo{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// ponytail: marks clients as disconnected after 60s of no heartbeat
+func (s *Server) cleanupClients(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now().Unix()
+			s.clientsMu.Lock()
+			for _, c := range s.clients {
+				if now-c.LastSeen > 60 {
+					c.Connected = false
+				}
+			}
+			s.clientsMu.Unlock()
+		}
+	}
 }
