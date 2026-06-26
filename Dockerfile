@@ -43,7 +43,6 @@ COPY --from=builder /vaultsort /usr/local/bin/vaultsort
 RUN mkdir -p /data/watch /data/vault
 
 # Default environment variables
-ENV VAULTSORT_DIRS="/data/watch"
 ENV VAULTSORT_MODE="server"
 ENV VAULTSORT_INTERVAL="5m"
 ENV VAULTSORT_PORT="2345"

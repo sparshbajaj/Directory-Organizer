@@ -69,7 +69,12 @@ func Load() (*Settings, error) {
 	// Set defaults
 	base := filepath.Dir(SettingsPath)
 	if s.WatchDir == "" {
-		s.WatchDir = filepath.Join(base, "watch")
+		cwd, _ := os.Getwd()
+		if cwd != "" {
+			s.WatchDir = cwd
+		} else {
+			s.WatchDir = filepath.Join(base, "watch")
+		}
 	}
 	if s.DBPath == "" {
 		s.DBPath = filepath.Join(base, "organizer.db")
@@ -109,10 +114,15 @@ func Save(s *Settings) error {
 func LoadFromEnv() (*Settings, error) {
 	s := &Settings{}
 
-	// VAULTSORT_DIRS (required)
+	// VAULTSORT_DIRS (defaults to CWD)
 	dirsStr := os.Getenv("VAULTSORT_DIRS")
 	if dirsStr == "" {
-		return nil, fmt.Errorf("VAULTSORT_DIRS is required")
+		cwd, _ := os.Getwd()
+		if cwd != "" {
+			dirsStr = cwd
+		} else {
+			dirsStr = "/data/watch"
+		}
 	}
 	for _, d := range strings.Split(dirsStr, ",") {
 		d = strings.TrimSpace(d)
