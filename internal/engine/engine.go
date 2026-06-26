@@ -29,20 +29,20 @@ type Engine struct {
 
 // NewEngine creates a new Engine instance, initializing DB and AI client.
 func NewEngine(cfg *config.Settings) (*Engine, error) {
-    // Ensure DB directory exists
-    if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0755); err != nil {
-        return nil, fmt.Errorf("mkdir db dir: %w", err)
-    }
-    // Ensure Watch directory exists
-    if err := os.MkdirAll(cfg.WatchDir, 0755); err != nil {
-        return nil, fmt.Errorf("mkdir watch dir: %w", err)
-    }
-    db, err := sql.Open("sqlite", cfg.DBPath)
-    if err != nil {
-        return nil, fmt.Errorf("open db: %w", err)
-    }
-    // Initialise schema
-    schema := `
+	// Ensure DB directory exists
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0755); err != nil {
+		return nil, fmt.Errorf("mkdir db dir: %w", err)
+	}
+	// Ensure Watch directory exists
+	if err := os.MkdirAll(cfg.WatchDir, 0755); err != nil {
+		return nil, fmt.Errorf("mkdir watch dir: %w", err)
+	}
+	db, err := sql.Open("sqlite", cfg.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+	// Initialise schema
+	schema := `
     CREATE TABLE IF NOT EXISTS files (
         path TEXT PRIMARY KEY,
         original_name TEXT,
@@ -51,27 +51,27 @@ func NewEngine(cfg *config.Settings) (*Engine, error) {
         metadata TEXT,
         context TEXT
     );`
-    if _, err := db.Exec(schema); err != nil {
-        return nil, fmt.Errorf("init schema: %w", err)
-    }
-    // Initialise AI client (placeholder config)
-    ai, err := aiclient.New(cfg)
-    if err != nil {
-        return nil, fmt.Errorf("ai client: %w", err)
-    }
-    eng := &Engine{
-        db:        db,
-        cfg:       cfg,
-        aiClient:  ai,
-        workQueue: make(chan string, 100),
-        stopCh:    make(chan struct{}),
-    }
-    
-    // Start 3 concurrent workers for renaming
-    for i := 0; i < 3; i++ {
-        go eng.worker()
-    }
-    
+	if _, err := db.Exec(schema); err != nil {
+		return nil, fmt.Errorf("init schema: %w", err)
+	}
+	// Initialise AI client (placeholder config)
+	ai, err := aiclient.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("ai client: %w", err)
+	}
+	eng := &Engine{
+		db:        db,
+		cfg:       cfg,
+		aiClient:  ai,
+		workQueue: make(chan string, 100),
+		stopCh:    make(chan struct{}),
+	}
+
+	// Start 3 concurrent workers for renaming
+	for i := 0; i < 3; i++ {
+		go eng.worker()
+	}
+
 	return eng, nil
 }
 
@@ -87,110 +87,110 @@ func (e *Engine) AIClient() *aiclient.Client {
 
 // ScanDirectory walks the watch directory and stores file metadata.
 func (e *Engine) ScanDirectory() error {
-    logger.Infof("Scanning directory %s", e.cfg.WatchDir)
-    return filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
-        if err != nil {
-            logger.Errorf("walk error: %v", err)
-            return err
-        }
-        if info.IsDir() {
-            return nil
-        }
-        return e.upsertFile(p, info.Name(), info.Size(), info.ModTime(), "", "")
-    })
+	logger.Infof("Scanning directory %s", e.cfg.WatchDir)
+	return filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			logger.Errorf("walk error: %v", err)
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		return e.upsertFile(p, info.Name(), info.Size(), info.ModTime(), "", "")
+	})
 }
 
 func (e *Engine) upsertFile(path string, originalName string, size int64, modTime time.Time, metadata string, context string) error {
-    stmt := `INSERT INTO files (path, original_name, size, mod_time, metadata, context) VALUES (?, ?, ?, ?, ?, ?)
+	stmt := `INSERT INTO files (path, original_name, size, mod_time, metadata, context) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(path) DO UPDATE SET original_name=excluded.original_name, size=excluded.size, mod_time=excluded.mod_time, metadata=excluded.metadata, context=excluded.context;`
-    _, err := e.db.Exec(stmt, path, originalName, size, modTime.Unix(), metadata, context)
-    if err != nil {
-        logger.Errorf("upsert %s: %v", path, err)
-    }
-    return err
+	_, err := e.db.Exec(stmt, path, originalName, size, modTime.Unix(), metadata, context)
+	if err != nil {
+		logger.Errorf("upsert %s: %v", path, err)
+	}
+	return err
 }
 
 // RegisterWatcher sets up a filesystem watcher that enqueues changed files.
 func (e *Engine) RegisterWatcher() error {
-    if e.watcher != nil {
-        e.watcher.Close()
-    }
-    w, err := fsnotify.NewWatcher()
-    if err != nil {
-        return err
-    }
-    e.watcher = w
-    go e.watchLoop()
-    return filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-        if info.IsDir() {
-            return w.Add(p)
-        }
-        return nil
-    })
+	if e.watcher != nil {
+		e.watcher.Close()
+	}
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	e.watcher = w
+	go e.watchLoop()
+	return filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return w.Add(p)
+		}
+		return nil
+	})
 }
 
 // OrganizeDirectory queues all existing files in the directory for processing
 func (e *Engine) OrganizeDirectory() error {
-    logger.Infof("Queuing directory %s for organization", e.cfg.WatchDir)
-    go func() {
-        count := 0
-        filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
-            if err != nil {
-                return err
-            }
-            if !info.IsDir() {
-                // Blocking send ensures we don't drop files if queue fills up
-                e.workQueue <- p
-                count++
-            }
-            return nil
-        })
-        logger.Infof("Successfully queued %d files for organization.", count)
-    }()
-    return nil
+	logger.Infof("Queuing directory %s for organization", e.cfg.WatchDir)
+	go func() {
+		count := 0
+		filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() {
+				// Blocking send ensures we don't drop files if queue fills up
+				e.workQueue <- p
+				count++
+			}
+			return nil
+		})
+		logger.Infof("Successfully queued %d files for organization.", count)
+	}()
+	return nil
 }
 
 func (e *Engine) watchLoop() {
-    defer e.watcher.Close()
-    for {
-        select {
-        case event, ok := <-e.watcher.Events:
-            if !ok {
-                return
-            }
-            if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
-                // Process created or modified file
-                go e.handleFile(event.Name)
-            }
-        case err, ok := <-e.watcher.Errors:
-            if ok {
-                logger.Errorf("watcher error: %v", err)
-            }
-        }
-    }
+	w := e.watcher // capture locally to avoid race on reassignment
+	defer w.Close()
+	for {
+		select {
+		case event, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
+				e.Enqueue(event.Name)
+			}
+		case err, ok := <-w.Errors:
+			if ok {
+				logger.Errorf("watcher error: %v", err)
+			}
+		}
+	}
 }
 
 func (e *Engine) Enqueue(path string) {
-    select {
-    case e.workQueue <- path:
-        logger.Infof("Enqueued %s", path)
-    default:
-        logger.Errorf("Queue full, dropping event for %s", path)
-    }
+	select {
+	case e.workQueue <- path:
+		logger.Infof("Enqueued %s", path)
+	default:
+		logger.Errorf("Queue full, dropping event for %s", path)
+	}
 }
 
 func (e *Engine) worker() {
-    for {
-        select {
-        case <-e.stopCh:
-            return
-        case path := <-e.workQueue:
-            e.handleFile(path)
-        }
-    }
+	for {
+		select {
+		case <-e.stopCh:
+			return
+		case path := <-e.workQueue:
+			e.handleFile(path)
+		}
+	}
 }
 
 func (e *Engine) handleFile(path string) {
@@ -276,11 +276,11 @@ func (e *Engine) handleFile(path string) {
 }
 
 func (e *Engine) Close() error {
-    if e.stopCh != nil {
-        close(e.stopCh)
-    }
-    if e.watcher != nil {
-        e.watcher.Close()
-    }
-    return e.db.Close()
+	if e.stopCh != nil {
+		close(e.stopCh)
+	}
+	if e.watcher != nil {
+		e.watcher.Close()
+	}
+	return e.db.Close()
 }

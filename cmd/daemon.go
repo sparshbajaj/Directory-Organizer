@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/sparshbajaj/directory-organizer/internal/config"
 	"github.com/sparshbajaj/directory-organizer/internal/dashboard"
 	"github.com/sparshbajaj/directory-organizer/internal/engine"
@@ -19,6 +18,7 @@ import (
 	"github.com/sparshbajaj/directory-organizer/internal/scheduler"
 	"github.com/sparshbajaj/directory-organizer/internal/updater"
 	"github.com/sparshbajaj/directory-organizer/internal/watcher"
+	"github.com/spf13/cobra"
 	_ "modernc.org/sqlite"
 )
 

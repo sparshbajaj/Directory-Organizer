@@ -373,7 +373,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create temp file"})
 		return
 	}
-	
+
 	if _, err := io.Copy(out, file); err != nil {
 		out.Close()
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write temp file"})
@@ -389,7 +389,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	
+
 	res, err := s.aiClient.Analyze(ctx, tmpPath)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -415,7 +415,7 @@ func (s *Server) handleEventPost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json payload"})
 		return
 	}
-	
+
 	if evt.Timestamp.IsZero() {
 		evt.Timestamp = time.Now()
 	}

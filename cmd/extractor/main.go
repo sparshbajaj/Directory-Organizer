@@ -32,11 +32,11 @@ func extractTextSnippet(path string, maxChars int) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	mimeType := mime.TypeByExtension(ext)
 	isText := strings.HasPrefix(mimeType, "text/")
-	
+
 	textExts := map[string]bool{
-		".md": true, ".txt": true, ".py": true, ".js": true, ".ts": true, 
-		".html": true, ".css": true, ".json": true, ".yaml": true, ".yml": true, 
-		".csv": true, ".go": true, ".rs": true, ".java": true, ".c": true, 
+		".md": true, ".txt": true, ".py": true, ".js": true, ".ts": true,
+		".html": true, ".css": true, ".json": true, ".yaml": true, ".yml": true,
+		".csv": true, ".go": true, ".rs": true, ".java": true, ".c": true,
 		".cpp": true, ".h": true, ".sh": true, ".bat": true, ".ps1": true,
 		"": true, // Files without extension like LICENSE, Makefile
 	}
@@ -53,7 +53,7 @@ func extractTextSnippet(path string, maxChars int) string {
 		if err != nil && err != io.EOF {
 			return ""
 		}
-		
+
 		return strings.TrimSpace(string(buf[:n]))
 	}
 

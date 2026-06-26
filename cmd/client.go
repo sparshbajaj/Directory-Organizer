@@ -86,8 +86,8 @@ func runClient(cmd *cobra.Command, args []string) error {
 	// Print startup banner
 	fmt.Println("╔══════════════════════════════════════════════════╗")
 	fmt.Println("║          🚀 VaultSort Remote Client             ║")
-	fmt.Printf( "║  Server:    %-37s ║\n", cfg.ServerURL)
-	fmt.Printf( "║  Dirs:      %-37d ║\n", len(cfg.WatchDirs))
+	fmt.Printf("║  Server:    %-37s ║\n", cfg.ServerURL)
+	fmt.Printf("║  Dirs:      %-37d ║\n", len(cfg.WatchDirs))
 	fmt.Println("╚══════════════════════════════════════════════════╝")
 
 	stopCh := make(chan struct{})
@@ -206,7 +206,7 @@ func handleRemoteFile(path string, cfg *config.Settings) {
 	}
 
 	logger.Infof("Remote renamed %s -> %s", originalName, dest)
-	
+
 	// 3. Emit success event to server
 	emitRemoteEvent(cfg, events.Event{
 		Type:   events.EventFileMoved,

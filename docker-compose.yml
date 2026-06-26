@@ -17,7 +17,7 @@ services:
       # -- AI Configuration (FreeLLM API) --
       - VAULTSORT_BASE_URL=http://192.168.0.247:3001/v1
       - VAULTSORT_MODEL=auto
-      - VAULTSORT_API_KEY=freellmapi-5e3541b50ae9df763eace3d9df0d5a58e2a6d2994973ece7
+      - VAULTSORT_API_KEY=${VAULTSORT_API_KEY:-}
     volumes:
       # Map your host directories here
       - /DATA/AppData/directory-organizer:/data              # For the database and config

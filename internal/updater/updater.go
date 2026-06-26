@@ -79,10 +79,10 @@ func (u *Updater) checkAndEmit(bus *events.Bus) {
 			Type:   events.EventUpdateAvail,
 			Detail: fmt.Sprintf("New version available: %s", rel.TagName),
 			Metadata: map[string]string{
-				"tag":      rel.TagName,
-				"name":     rel.Name,
-				"url":      rel.HTMLURL,
-				"current":  u.current,
+				"tag":     rel.TagName,
+				"name":    rel.Name,
+				"url":     rel.HTMLURL,
+				"current": u.current,
 			},
 		})
 		logger.Infof("New version available: %s (current: %s)", rel.TagName, u.current)

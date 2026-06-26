@@ -1,9 +1,9 @@
 package main
 
 import (
-    "github.com/sparshbajaj/directory-organizer/cmd"
+	"github.com/sparshbajaj/directory-organizer/cmd"
 )
 
 func main() {
-    cmd.Execute()
+	cmd.Execute()
 }

@@ -13,13 +13,13 @@ import (
 var SettingsPath string
 
 func init() {
-    appData := os.Getenv("APPDATA")
-    if appData == "" {
-        // fallback to user home
-        home, _ := os.UserHomeDir()
-        appData = home
-    }
-    SettingsPath = filepath.Join(appData, "DirectoryOrganizer", "settings.json")
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		// fallback to user home
+		home, _ := os.UserHomeDir()
+		appData = home
+	}
+	SettingsPath = filepath.Join(appData, "DirectoryOrganizer", "settings.json")
 }
 
 type Settings struct {
@@ -50,50 +50,51 @@ type Settings struct {
 	ServerURL         string   `json:"server_url,omitempty"`
 }
 
-
 func Load() (*Settings, error) {
-    var s Settings
-    data, err := os.ReadFile(SettingsPath)
-    if err == nil {
-        if err := json.Unmarshal(data, &s); err != nil {
-            return nil, err
-        }
-    } else if !os.IsNotExist(err) {
-        return nil, err
-    }
+	var s Settings
+	data, err := os.ReadFile(SettingsPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &s); err != nil {
+			return nil, err
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
 
-    // Set defaults
-    appData := os.Getenv("APPDATA")
-    if appData == "" {
-        home, _ := os.UserHomeDir()
-        appData = home
-    }
-    base := filepath.Join(appData, "DirectoryOrganizer")
-    if s.WatchDir == "" {
-        s.WatchDir = filepath.Join(base, "watch")
-    }
-    if s.DBPath == "" {
-        s.DBPath = filepath.Join(base, "organizer.db")
-    }
-    if s.BaseURL == "" {
-        s.BaseURL = "http://localhost:11434/v1"
-    }
+	// Set defaults
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		home, _ := os.UserHomeDir()
+		appData = home
+	}
+	base := filepath.Join(appData, "DirectoryOrganizer")
+	if s.WatchDir == "" {
+		s.WatchDir = filepath.Join(base, "watch")
+	}
+	if s.DBPath == "" {
+		s.DBPath = filepath.Join(base, "organizer.db")
+	}
+	if s.BaseURL == "" {
+		s.BaseURL = "http://localhost:11434/v1"
+	}
 
-    // Save defaults to file so the user can modify them
-    Save(&s)
+	// Save defaults only if file didn't exist (don't overwrite user edits)
+	if os.IsNotExist(err) {
+		Save(&s)
+	}
 
-    return &s, nil
+	return &s, nil
 }
 
 func Save(s *Settings) error {
-    dir := filepath.Dir(SettingsPath)
-    if err := os.MkdirAll(dir, 0755); err != nil {
-        return err
-    }
-    data, err := json.MarshalIndent(s, "", "  ")
-    if err != nil {
-        return err
-    }
+	dir := filepath.Dir(SettingsPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
 	return os.WriteFile(SettingsPath, data, 0644)
 }
 
@@ -194,9 +195,6 @@ func LoadFromEnv() (*Settings, error) {
 	}
 	if v := os.Getenv("VAULTSORT_MODEL"); v != "" {
 		s.Model = v
-	}
-	if v := os.Getenv("VAULTSORT_GITHUB_INTERVAL"); v != "" {
-		s.GitHubIntervalStr = v
 	}
 	if v := os.Getenv("VAULTSORT_SERVER_URL"); v != "" {
 		s.ServerURL = v

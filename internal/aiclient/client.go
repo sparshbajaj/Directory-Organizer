@@ -12,21 +12,21 @@ import (
 	"strings"
 	"time"
 
-    "github.com/sparshbajaj/directory-organizer/internal/config"
+	"github.com/sparshbajaj/directory-organizer/internal/config"
 )
 
 type Client struct {
-    cfg *config.Settings
+	cfg *config.Settings
 }
 
 type AIResult struct {
-    NewName  string `json:"new_name"`
-    Metadata string `json:"metadata"`
-    Context  string `json:"context"`
+	NewName  string `json:"new_name"`
+	Metadata string `json:"metadata"`
+	Context  string `json:"context"`
 }
 
 func New(cfg *config.Settings) (*Client, error) {
-    return &Client{cfg: cfg}, nil
+	return &Client{cfg: cfg}, nil
 }
 
 // Analyze calls the configured OpenAI-compatible API to get a new filename, metadata, and context.
@@ -145,17 +145,17 @@ Do not output any markdown formatting or extra text.`, filePath, contentStr)
 
 // Very small sanitiser to ensure filename safety
 func sanitizeFilename(name string) string {
-    cleaned := name
-    cleaned = strings.TrimSpace(cleaned)
-    cleaned = strings.Trim(cleaned, "\"'")
-    cleaned = strings.ReplaceAll(cleaned, "\n", "")
-    cleaned = strings.ReplaceAll(cleaned, "\r", "")
-    illegal := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
-    for _, r := range illegal {
-        cleaned = strings.ReplaceAll(cleaned, r, "_")
-    }
-    if len([]rune(cleaned)) > 255 {
-        cleaned = string([]rune(cleaned)[:255])
-    }
-    return cleaned
+	cleaned := name
+	cleaned = strings.TrimSpace(cleaned)
+	cleaned = strings.Trim(cleaned, "\"'")
+	cleaned = strings.ReplaceAll(cleaned, "\n", "")
+	cleaned = strings.ReplaceAll(cleaned, "\r", "")
+	illegal := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	for _, r := range illegal {
+		cleaned = strings.ReplaceAll(cleaned, r, "_")
+	}
+	if len([]rune(cleaned)) > 255 {
+		cleaned = string([]rune(cleaned)[:255])
+	}
+	return cleaned
 }
