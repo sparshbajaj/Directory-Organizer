@@ -132,7 +132,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 
 	// 11. Start web dashboard
-	srv := dashboard.NewServer(bus, upd, cfg, Version)
+	srv := dashboard.NewServer(bus, upd, eng.AIClient(), cfg, Version)
 	go func() {
 		if err := srv.Start(ctx, cfg.Port); err != nil {
 			logger.Errorf("Dashboard server error: %v", err)

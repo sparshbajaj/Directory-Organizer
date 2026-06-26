@@ -39,7 +39,7 @@ FROM alpine:3.21
 
 LABEL maintainer="Sparsh Bajaj"
 LABEL description="VaultSort — AI-powered directory organizer daemon"
-LABEL org.opencontainers.image.source="https://github.com/sparshbajaj/Directory-Organizer"
+LABEL org.opencontainers.image.source="http://192.168.0.247:3002/sparsh/Directory-Organizer"
 
 # Runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata
