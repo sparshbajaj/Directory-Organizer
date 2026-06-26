@@ -84,6 +84,7 @@ func (s *Server) Start(ctx context.Context, port int) error {
 	mux.HandleFunc("/api/clients", s.handleClients)
 	mux.HandleFunc("/api/graph", s.handleGraph)
 	mux.HandleFunc("/api/rules", s.handleRules)
+	mux.HandleFunc("/api/cli-status", s.handleCLIStatus)
 
 	// Static files – the embedded FS has the shape static/*, so we strip the
 	// leading "static" prefix to serve from "/".
@@ -551,6 +552,41 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"rules_path": path,
 		"provider":   s.cfg.AICLIProvider,
+	})
+}
+
+func (s *Server) handleCLIStatus(w http.ResponseWriter, r *http.Request) {
+	provider := ""
+	installed := false
+	loggedIn := false
+	binPath := ""
+	configDir := ""
+
+	if s.cfg != nil {
+		provider = s.cfg.AICLIProvider
+		if provider != "" {
+			dataDir := aiclient.DataDir()
+			configDir = filepath.Join(dataDir, "configs", provider)
+			binPath = filepath.Join(dataDir, "clis", provider, provider)
+			if _, err := os.Stat(binPath); err == nil {
+				installed = true
+			}
+			if _, err := os.Stat(configDir); err == nil {
+				loggedIn = true
+			}
+		}
+	}
+
+	if p := s.aiClient.Provider(); p != nil && provider == "" {
+		provider = p.Name()
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"provider":    provider,
+		"installed":   installed,
+		"logged_in":   loggedIn,
+		"binary_path": binPath,
+		"config_path": configDir,
 	})
 }
 

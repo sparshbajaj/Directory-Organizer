@@ -270,7 +270,7 @@ func (e *Engine) handleFile(path string) {
 	if p := e.aiClient.Provider(); p != nil {
 		cliName = p.Name()
 	}
-	e.rulesEng.LearnFromDecision(filename, res.NewName, res.Metadata, res.Context, cliName)
+	e.rulesEng.LearnFromDecision(filename, res.NewName, res.MetadataString(), res.Context, cliName)
 	e.rulesEng.Save()
 
 	e.applyResult(path, res)
@@ -346,15 +346,15 @@ func (e *Engine) applyResult(path string, res *aiclient.AIResult) {
 
 	info, err := os.Stat(dest)
 	if err == nil {
-		e.upsertFile(dest, originalName, info.Size(), info.ModTime(), res.Metadata, res.Context)
+		e.upsertFile(dest, originalName, info.Size(), info.ModTime(), res.MetadataString(), res.Context)
 	}
 
-	e.updateKB(dest, originalName, res.Metadata, res.Context)
+	e.updateKB(dest, originalName, res.MetadataString(), res.Context)
 
 	if e.cfg.VaultPath != "" {
 		os.MkdirAll(e.cfg.VaultPath, 0755)
 		vContent := fmt.Sprintf("# %s\n\n**Original Path:** %s\n**Date Organized:** %s\n**Metadata:** %s\n\n## Context\n%s",
-			res.NewName, path, time.Now().Format("2006-01-02"), res.Metadata, res.Context)
+			res.NewName, path, time.Now().Format("2006-01-02"), res.MetadataString(), res.Context)
 		os.WriteFile(filepath.Join(e.cfg.VaultPath, res.NewName+".md"), []byte(vContent), 0644)
 	}
 }

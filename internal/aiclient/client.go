@@ -20,9 +20,27 @@ type Client struct {
 }
 
 type AIResult struct {
-	NewName  string `json:"new_name"`
-	Metadata string `json:"metadata"`
-	Context  string `json:"context"`
+	NewName  string      `json:"new_name"`
+	Metadata interface{} `json:"metadata"`
+	Context  string      `json:"context"`
+}
+
+func (r *AIResult) MetadataString() string {
+	if r.Metadata == nil {
+		return ""
+	}
+	switch v := r.Metadata.(type) {
+	case string:
+		return v
+	case map[string]interface{}:
+		parts := make([]string, 0, len(v))
+		for k := range v {
+			parts = append(parts, k)
+		}
+		return strings.Join(parts, ", ")
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func New(cfg *config.Settings) (*Client, error) {

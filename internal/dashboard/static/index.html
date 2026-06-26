@@ -604,6 +604,24 @@
       </div>
     </section>
 
+    <!-- CLI Status -->
+    <section aria-label="CLI Provider">
+      <h2 class="section-title">🤖 AI CLI Provider</h2>
+      <div id="cliStatus" class="glass-card dir-card">
+        <span style="color:var(--text-muted)">Loading…</span>
+      </div>
+    </section>
+
+    <!-- Error Feed -->
+    <section aria-label="Recent Errors">
+      <h2 class="section-title">❌ Recent Errors</h2>
+      <div class="glass-card activity-panel" style="margin-bottom:28px">
+        <div class="activity-list" id="errorList" style="max-height:300px">
+          <div class="activity-empty" id="errorEmpty">No errors recorded.</div>
+        </div>
+      </div>
+    </section>
+
     <!-- Live Activity Feed -->
     <section aria-label="Live Activity">
       <div class="glass-card activity-panel">
@@ -870,6 +888,50 @@
         '</div>';
     }
 
+    // ── CLI Provider Status ─────────────────────────────────────
+    async function fetchCLIStatus() {
+      const data = await apiFetch('/api/cli-status');
+      const el = document.getElementById('cliStatus');
+      if (!data || !data.provider) {
+        el.innerHTML = '<span style="color:var(--text-muted)">No CLI provider configured. Using API fallback.</span>';
+        return;
+      }
+      const installStatus = data.installed
+        ? '<span class="exists-ok">✅ Installed</span>'
+        : '<span class="exists-err">❌ Not installed</span>';
+      const loginStatus = data.logged_in
+        ? '<span class="exists-ok">🔐 Logged in</span>'
+        : '<span class="exists-err">🔓 Not logged in</span>';
+      el.innerHTML =
+        '<div class="dir-path">' + escapeHtml(data.provider) + '</div>' +
+        '<div class="dir-meta">' + installStatus + ' · ' + loginStatus + '</div>' +
+        '<div class="dir-stat" style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">' +
+          escapeHtml(data.binary_path || '') +
+        '</div>';
+    }
+
+    // ── Error Feed ─────────────────────────────────────────────
+    async function fetchErrors() {
+      const data = await apiFetch('/api/events?type=file_error&limit=20');
+      const list = document.getElementById('errorList');
+      const empty = document.getElementById('errorEmpty');
+      list.innerHTML = '';
+      if (!data || !data.length) {
+        list.appendChild(empty);
+        return;
+      }
+      data.forEach(function (evt) {
+        const div = document.createElement('div');
+        div.className = 'event-item';
+        const detail = evt.detail || evt.data || 'Unknown error';
+        div.innerHTML =
+          '<span class="event-time">' + formatTime(evt.timestamp) + '</span>' +
+          '<span class="event-type-badge file_error">ERROR</span>' +
+          '<span class="event-detail">' + escapeHtml(typeof detail === 'string' ? detail : JSON.stringify(detail)) + '</span>';
+        list.appendChild(div);
+      });
+    }
+
     // ── File Movement History ──────────────────────────────────
     async function fetchHistory() {
       const data = await apiFetch('/api/events?type=file_moved&limit=50');
@@ -971,6 +1033,9 @@
             if (['file_moved', 'file_detected', 'file_processing', 'file_error'].includes(evt.type)) {
               fetchStats();
             }
+            if (evt.type === 'file_error') {
+              fetchErrors();
+            }
           } catch (err) {
             console.warn('SSE parse error:', err);
           }
@@ -997,6 +1062,8 @@
         fetchDirs();
         fetchClients();
         fetchKB();
+        fetchCLIStatus();
+        fetchErrors();
       }, 30000);
     }
 
@@ -1017,6 +1084,8 @@
       fetchDirs();
       fetchClients();
       fetchKB();
+      fetchCLIStatus();
+      fetchErrors();
       fetchHistory();
       fetchUpdate();
       await fetchInitialEvents();
