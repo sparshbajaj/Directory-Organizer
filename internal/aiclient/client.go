@@ -1,4 +1,3 @@
-// internal/aiclient/client.go
 package aiclient
 
 import (
@@ -16,7 +15,8 @@ import (
 )
 
 type Client struct {
-	cfg *config.Settings
+	cfg      *config.Settings
+	provider Provider
 }
 
 type AIResult struct {
@@ -26,12 +26,43 @@ type AIResult struct {
 }
 
 func New(cfg *config.Settings) (*Client, error) {
-	return &Client{cfg: cfg}, nil
+	c := &Client{cfg: cfg}
+	if cfg.AICLIProvider != "" {
+		c.provider = NewCLIProvider(cfg.AICLIProvider, cfg.AICLIProvider, cfg.RulesPath, DataDir())
+	}
+	return c, nil
 }
 
-// Analyze calls the configured OpenAI-compatible API to get a new filename, metadata, and context.
+func (c *Client) SetProvider(p Provider) {
+	c.provider = p
+}
+
+func (c *Client) Provider() Provider {
+	return c.provider
+}
+
 func (c *Client) Analyze(ctx context.Context, filePath string) (*AIResult, error) {
-	// ponytail: minimum viable file read
+	if c.provider != nil {
+		prompt := c.buildPrompt(filePath)
+		return c.provider.Analyze(ctx, filePath, prompt)
+	}
+	return c.analyzeAPI(ctx, filePath)
+}
+
+func (c *Client) buildPrompt(filePath string) string {
+	content, _ := os.ReadFile(filePath)
+	if len(content) > 2000 {
+		content = content[:2000]
+	}
+	contentStr := strings.ToValidUTF8(string(content), "")
+	return fmt.Sprintf(`Read the file at %s.
+File contents snippet:
+%s
+
+Extract its metadata, summarize its context, and determine a highly descriptive new filename.`, filePath, contentStr)
+}
+
+func (c *Client) analyzeAPI(ctx context.Context, filePath string) (*AIResult, error) {
 	content, _ := os.ReadFile(filePath)
 	if len(content) > 2000 {
 		content = content[:2000]
@@ -42,15 +73,14 @@ func (c *Client) Analyze(ctx context.Context, filePath string) (*AIResult, error
 File contents snippet:
 %s
 
-Extract its metadata, summarize its context, and determine a highly descriptive new filename. 
-Output ONLY a raw JSON object with the keys: new_name, metadata, context. 
+Extract its metadata, summarize its context, and determine a highly descriptive new filename.
+Output ONLY a raw JSON object with the keys: new_name, metadata, context.
 Do not output any markdown formatting or extra text.`, filePath, contentStr)
 
 	baseURL := c.cfg.BaseURL
 	if baseURL == "" {
 		baseURL = "http://localhost:11434/v1"
 	}
-	// Ensure we hit the chat completions endpoint
 	if !strings.HasSuffix(baseURL, "/chat/completions") {
 		baseURL = strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	}
@@ -102,7 +132,6 @@ Do not output any markdown formatting or extra text.`, filePath, contentStr)
 			continue
 		}
 
-		// Parse OpenAI format
 		var aiResp struct {
 			Choices []struct {
 				Message struct {
@@ -143,7 +172,6 @@ Do not output any markdown formatting or extra text.`, filePath, contentStr)
 	return nil, lastErr
 }
 
-// Very small sanitiser to ensure filename safety
 func sanitizeFilename(name string) string {
 	cleaned := name
 	cleaned = strings.TrimSpace(cleaned)

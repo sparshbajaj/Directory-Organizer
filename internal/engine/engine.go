@@ -1,4 +1,3 @@
-// internal/engine/engine.go
 package engine
 
 import (
@@ -7,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sparshbajaj/directory-organizer/internal/aiclient"
 	"github.com/sparshbajaj/directory-organizer/internal/config"
 	"github.com/sparshbajaj/directory-organizer/internal/events"
+	"github.com/sparshbajaj/directory-organizer/internal/knowledge"
 	"github.com/sparshbajaj/directory-organizer/internal/logger"
+	"github.com/sparshbajaj/directory-organizer/internal/rules"
 	_ "modernc.org/sqlite"
 )
 
@@ -21,19 +23,18 @@ type Engine struct {
 	db        *sql.DB
 	cfg       *config.Settings
 	aiClient  *aiclient.Client
+	rulesEng  *rules.Engine
+	kb        *knowledge.DB
 	watcher   *fsnotify.Watcher
 	workQueue chan string
 	stopCh    chan struct{}
 	bus       *events.Bus
 }
 
-// NewEngine creates a new Engine instance, initializing DB and AI client.
 func NewEngine(cfg *config.Settings) (*Engine, error) {
-	// Ensure DB directory exists
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0755); err != nil {
 		return nil, fmt.Errorf("mkdir db dir: %w", err)
 	}
-	// Ensure Watch directory exists
 	if err := os.MkdirAll(cfg.WatchDir, 0755); err != nil {
 		return nil, fmt.Errorf("mkdir watch dir: %w", err)
 	}
@@ -41,7 +42,6 @@ func NewEngine(cfg *config.Settings) (*Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	// Initialise schema
 	schema := `
     CREATE TABLE IF NOT EXISTS files (
         path TEXT PRIMARY KEY,
@@ -54,20 +54,35 @@ func NewEngine(cfg *config.Settings) (*Engine, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
-	// Initialise AI client (placeholder config)
+
 	ai, err := aiclient.New(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("ai client: %w", err)
 	}
+
+	rulesEng := rules.New(cfg.RulesPath)
+	if err := rulesEng.Load(); err != nil {
+		logger.Infof("No existing rules: %v", err)
+	}
+
+	var kb *knowledge.DB
+	if cfg.KBPath != "" {
+		kb, err = knowledge.New(cfg.KBPath)
+		if err != nil {
+			logger.Infof("No existing knowledge base: %v", err)
+		}
+	}
+
 	eng := &Engine{
 		db:        db,
 		cfg:       cfg,
 		aiClient:  ai,
+		rulesEng:  rulesEng,
+		kb:        kb,
 		workQueue: make(chan string, 100),
 		stopCh:    make(chan struct{}),
 	}
 
-	// Start 3 concurrent workers for renaming
 	for i := 0; i < 3; i++ {
 		go eng.worker()
 	}
@@ -75,17 +90,22 @@ func NewEngine(cfg *config.Settings) (*Engine, error) {
 	return eng, nil
 }
 
-// SetBus attaches an event bus to the engine for emitting file processing events.
 func (e *Engine) SetBus(bus *events.Bus) {
 	e.bus = bus
 }
 
-// AIClient returns the initialized AI client.
 func (e *Engine) AIClient() *aiclient.Client {
 	return e.aiClient
 }
 
-// ScanDirectory walks the watch directory and stores file metadata.
+func (e *Engine) Rules() *rules.Engine {
+	return e.rulesEng
+}
+
+func (e *Engine) KB() *knowledge.DB {
+	return e.kb
+}
+
 func (e *Engine) ScanDirectory() error {
 	logger.Infof("Scanning directory %s", e.cfg.WatchDir)
 	return filepath.Walk(e.cfg.WatchDir, func(p string, info os.FileInfo, err error) error {
@@ -110,10 +130,6 @@ func (e *Engine) upsertFile(path string, originalName string, size int64, modTim
 	return err
 }
 
-// ponytail: engine has its own watcher AND internal/watcher exists — two impls, same job.
-// Collapse into one if both are active on the same dirs, but TUI only uses this one
-// and daemon only uses internal/watcher, so they don't conflict in practice.
-// RegisterWatcher sets up a filesystem watcher that enqueues changed files.
 func (e *Engine) RegisterWatcher() error {
 	if e.watcher != nil {
 		e.watcher.Close()
@@ -135,7 +151,6 @@ func (e *Engine) RegisterWatcher() error {
 	})
 }
 
-// OrganizeDirectory queues all existing files in the directory for processing
 func (e *Engine) OrganizeDirectory() error {
 	logger.Infof("Queuing directory %s for organization", e.cfg.WatchDir)
 	go func() {
@@ -145,7 +160,6 @@ func (e *Engine) OrganizeDirectory() error {
 				return err
 			}
 			if !info.IsDir() {
-				// Blocking send ensures we don't drop files if queue fills up
 				e.workQueue <- p
 				count++
 			}
@@ -156,8 +170,25 @@ func (e *Engine) OrganizeDirectory() error {
 	return nil
 }
 
+func (e *Engine) BuildKB() {
+	if e.kb == nil {
+		return
+	}
+	logger.Info("Building knowledge graph...")
+	if err := e.kb.BuildGraph(e.cfg.WatchDir); err != nil {
+		logger.Errorf("build kb: %v", err)
+	}
+	if e.bus != nil {
+		count, _ := e.rulesEng.Stats()
+		e.bus.Emit(events.Event{
+			Type:   events.EventHealthCheck,
+			Detail: fmt.Sprintf("Knowledge graph built. Rules: %d", count),
+		})
+	}
+}
+
 func (e *Engine) watchLoop() {
-	w := e.watcher // capture locally to avoid race on reassignment
+	w := e.watcher
 	defer w.Close()
 	for {
 		select {
@@ -197,7 +228,6 @@ func (e *Engine) worker() {
 }
 
 func (e *Engine) handleFile(path string) {
-	// Emit processing event
 	if e.bus != nil {
 		e.bus.Emit(events.Event{
 			Type:     events.EventFileProcessing,
@@ -207,8 +237,15 @@ func (e *Engine) handleFile(path string) {
 		})
 	}
 
-	// Call AI to get a new name, metadata, and context
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2) // longer timeout for CLI
+	filename := filepath.Base(path)
+
+	if rule := e.rulesEng.Match(filename); rule != nil {
+		logger.Infof("Rule matched for %s: %s", filename, rule.Pattern)
+		e.applyRule(path, rule)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
 
 	res, err := e.aiClient.Analyze(ctx, path)
@@ -229,6 +266,51 @@ func (e *Engine) handleFile(path string) {
 		return
 	}
 
+	cliName := ""
+	if p := e.aiClient.Provider(); p != nil {
+		cliName = p.Name()
+	}
+	e.rulesEng.LearnFromDecision(filename, res.NewName, res.Metadata, res.Context, cliName)
+	e.rulesEng.Save()
+
+	e.applyResult(path, res)
+}
+
+func (e *Engine) applyRule(path string, rule *rules.Rule) {
+	originalName := filepath.Base(path)
+	dir := filepath.Dir(path)
+	ext := filepath.Ext(path)
+
+	newName := rule.NewName
+	newName = strings.ReplaceAll(newName, "{{original}}", strings.TrimSuffix(originalName, ext))
+	newName = strings.ReplaceAll(newName, "{{ext}}", ext)
+	newName = strings.ReplaceAll(newName, "{{date}}", time.Now().Format("2006-01-02"))
+
+	destDir := dir
+	if rule.TargetDir != "" {
+		destDir = filepath.Join(dir, rule.TargetDir)
+		os.MkdirAll(destDir, 0755)
+	}
+	dest := filepath.Join(destDir, newName+ext)
+
+	if err := os.Rename(path, dest); err != nil {
+		logger.Errorf("rule rename %s->%s: %v", path, dest, err)
+		return
+	}
+	logger.Infof("Rule applied: %s -> %s", path, dest)
+
+	if e.bus != nil {
+		e.bus.Emit(events.Event{
+			Type:   events.EventFileMoved,
+			Source: dir,
+			Detail: fmt.Sprintf("%s -> %s (rule)", originalName, newName+ext),
+		})
+	}
+
+	e.updateKB(dest, originalName, rule.Metadata, rule.Context)
+}
+
+func (e *Engine) applyResult(path string, res *aiclient.AIResult) {
 	originalName := filepath.Base(path)
 	dir := filepath.Dir(path)
 	ext := filepath.Ext(path)
@@ -248,7 +330,6 @@ func (e *Engine) handleFile(path string) {
 	}
 	logger.Infof("Renamed %s to %s", path, dest)
 
-	// Emit success event
 	if e.bus != nil {
 		e.bus.Emit(events.Event{
 			Type:   events.EventFileMoved,
@@ -263,13 +344,13 @@ func (e *Engine) handleFile(path string) {
 		})
 	}
 
-	// Update DB with new path and metadata
 	info, err := os.Stat(dest)
 	if err == nil {
 		e.upsertFile(dest, originalName, info.Size(), info.ModTime(), res.Metadata, res.Context)
 	}
 
-	// ponytail: minimal vault generation
+	e.updateKB(dest, originalName, res.Metadata, res.Context)
+
 	if e.cfg.VaultPath != "" {
 		os.MkdirAll(e.cfg.VaultPath, 0755)
 		vContent := fmt.Sprintf("# %s\n\n**Original Path:** %s\n**Date Organized:** %s\n**Metadata:** %s\n\n## Context\n%s",
@@ -278,12 +359,32 @@ func (e *Engine) handleFile(path string) {
 	}
 }
 
+func (e *Engine) updateKB(path, originalName, metadata, context string) {
+	if e.kb == nil {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	tags := []string{}
+	if metadata != "" {
+		for _, t := range strings.Split(metadata, ",") {
+			tags = append(tags, strings.TrimSpace(t))
+		}
+	}
+	e.kb.UpsertContext(path, context, metadata, originalName, info.Size(), info.ModTime(), tags)
+}
+
 func (e *Engine) Close() error {
 	if e.stopCh != nil {
 		close(e.stopCh)
 	}
 	if e.watcher != nil {
 		e.watcher.Close()
+	}
+	if e.kb != nil {
+		e.kb.Close()
 	}
 	return e.db.Close()
 }

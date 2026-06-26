@@ -33,8 +33,8 @@ LABEL maintainer="Sparsh Bajaj"
 LABEL description="VaultSort — AI-powered directory organizer daemon"
 LABEL org.opencontainers.image.source="http://192.168.0.247:3002/sparsh/Directory-Organizer"
 
-# Runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata
+# Runtime dependencies — including curl/npm for AI CLI auto-install
+RUN apk add --no-cache ca-certificates tzdata curl npm
 
 # Copy binaries
 COPY --from=builder /vaultsort /usr/local/bin/vaultsort
@@ -52,6 +52,10 @@ ENV VAULTSORT_VAULT_PATH="/data/vault"
 ENV VAULTSORT_LOG_LEVEL="info"
 ENV VAULTSORT_GITHUB_CHECK="true"
 ENV VAULTSORT_GITHUB_INTERVAL="6h"
+ENV VAULTSORT_AI_CLI=""
+ENV VAULTSORT_RULES_PATH="/data/rules.json"
+ENV VAULTSORT_KB_PATH="/data/knowledge.db"
+ENV VAULTSORT_DATA_DIR="/data"
 
 # Expose dashboard port
 EXPOSE 2345

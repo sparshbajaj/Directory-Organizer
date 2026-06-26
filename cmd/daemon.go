@@ -89,11 +89,19 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	eng.SetBus(bus)
 	defer eng.Close()
 
-	// 7. Context for graceful shutdown
+	// 7. Build knowledge base from existing files
+	if cfg.AICLIProvider != "" {
+		go func() {
+			time.Sleep(5 * time.Second)
+			eng.BuildKB()
+		}()
+	}
+
+	// 8. Context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 8. Start watchers (if mode is "watch" or "both")
+	// 9. Start watchers (if mode is "watch" or "both")
 	if cfg.Mode == "watch" || cfg.Mode == "both" {
 		w, err := watcher.New(eng)
 		if err != nil {
@@ -132,7 +140,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 
 	// 11. Start web dashboard
-	srv := dashboard.NewServer(bus, upd, eng.AIClient(), cfg, Version)
+	srv := dashboard.NewServer(bus, upd, eng.AIClient(), eng.KB(), cfg, Version)
 	go func() {
 		if err := srv.Start(ctx, cfg.Port); err != nil {
 			logger.Errorf("Dashboard server error: %v", err)

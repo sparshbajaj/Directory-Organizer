@@ -48,6 +48,11 @@ type Settings struct {
 	GitHubCheck       bool     `json:"github_check,omitempty"`
 	GitHubIntervalStr string   `json:"github_interval,omitempty"`
 	ServerURL         string   `json:"server_url,omitempty"`
+
+	// CLI provider fields
+	AICLIProvider string `json:"ai_cli_provider,omitempty"` // "opencode", "antigravity", "claude"
+	RulesPath     string `json:"rules_path,omitempty"`
+	KBPath        string `json:"kb_path,omitempty"`
 }
 
 func Load() (*Settings, error) {
@@ -71,6 +76,13 @@ func Load() (*Settings, error) {
 	}
 	if s.BaseURL == "" {
 		s.BaseURL = "http://localhost:11434/v1"
+	}
+
+	if s.RulesPath == "" {
+		s.RulesPath = filepath.Join(base, "rules.json")
+	}
+	if s.KBPath == "" {
+		s.KBPath = filepath.Join(base, "knowledge.db")
 	}
 
 	// Save defaults only if file didn't exist (don't overwrite user edits)
@@ -193,6 +205,19 @@ func LoadFromEnv() (*Settings, error) {
 	}
 	if v := os.Getenv("VAULTSORT_SERVER_URL"); v != "" {
 		s.ServerURL = v
+	}
+	if v := os.Getenv("VAULTSORT_AI_CLI"); v != "" {
+		s.AICLIProvider = v
+	}
+	if v := os.Getenv("VAULTSORT_RULES_PATH"); v != "" {
+		s.RulesPath = v
+	} else {
+		s.RulesPath = "/data/rules.json"
+	}
+	if v := os.Getenv("VAULTSORT_KB_PATH"); v != "" {
+		s.KBPath = v
+	} else {
+		s.KBPath = "/data/knowledge.db"
 	}
 
 	return s, nil

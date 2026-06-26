@@ -596,6 +596,14 @@
       </div>
     </section>
 
+    <!-- Knowledge Graph -->
+    <section aria-label="Knowledge Graph">
+      <h2 class="section-title">🧠 Knowledge Base</h2>
+      <div id="kbStatus" class="glass-card dir-card">
+        <span style="color:var(--text-muted)">Loading KB…</span>
+      </div>
+    </section>
+
     <!-- Live Activity Feed -->
     <section aria-label="Live Activity">
       <div class="glass-card activity-panel">
@@ -844,6 +852,24 @@
       });
     }
 
+    // ── Knowledge Base ────────────────────────────────────────
+    async function fetchKB() {
+      const data = await apiFetch('/api/graph');
+      const el = document.getElementById('kbStatus');
+      if (!data || data.status === 'no_kb') {
+        el.innerHTML = '<span style="color:var(--text-muted)">KB not initialized. Run <code style="background:rgba(255,255,255,0.1);padding:2px 6px;border-radius:4px">vaultsort init</code> to set up.</span>';
+        return;
+      }
+      const nodes = data.nodes || [];
+      const edges = data.edges || [];
+      el.innerHTML =
+        '<div class="dir-path">Knowledge Graph</div>' +
+        '<div class="dir-meta">' +
+          '<span class="dir-stat"><strong>' + nodes.length + '</strong> files indexed</span>' +
+          '<span class="dir-stat"><strong>' + edges.length + '</strong> connections</span>' +
+        '</div>';
+    }
+
     // ── File Movement History ──────────────────────────────────
     async function fetchHistory() {
       const data = await apiFetch('/api/events?type=file_moved&limit=50');
@@ -970,6 +996,7 @@
         fetchStats();
         fetchDirs();
         fetchClients();
+        fetchKB();
       }, 30000);
     }
 
@@ -989,6 +1016,7 @@
       fetchStats();
       fetchDirs();
       fetchClients();
+      fetchKB();
       fetchHistory();
       fetchUpdate();
       await fetchInitialEvents();

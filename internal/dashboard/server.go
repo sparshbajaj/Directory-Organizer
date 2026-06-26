@@ -18,6 +18,7 @@ import (
 	"github.com/sparshbajaj/directory-organizer/internal/aiclient"
 	"github.com/sparshbajaj/directory-organizer/internal/config"
 	"github.com/sparshbajaj/directory-organizer/internal/events"
+	"github.com/sparshbajaj/directory-organizer/internal/knowledge"
 	"github.com/sparshbajaj/directory-organizer/internal/logger"
 	"github.com/sparshbajaj/directory-organizer/internal/updater"
 )
@@ -40,6 +41,7 @@ type Server struct {
 	updater   *updater.Updater
 	cfg       *config.Settings
 	aiClient  *aiclient.Client
+	kb        *knowledge.DB
 	version   string
 	port      int
 	start     time.Time
@@ -49,11 +51,12 @@ type Server struct {
 
 // NewServer creates a dashboard server wired to the event bus, updater, and
 // application settings.
-func NewServer(bus *events.Bus, upd *updater.Updater, ai *aiclient.Client, cfg *config.Settings, version string) *Server {
+func NewServer(bus *events.Bus, upd *updater.Updater, ai *aiclient.Client, kb *knowledge.DB, cfg *config.Settings, version string) *Server {
 	return &Server{
 		bus:      bus,
 		updater:  upd,
 		aiClient: ai,
+		kb:       kb,
 		cfg:      cfg,
 		version:  version,
 		start:    time.Now(),
@@ -79,6 +82,8 @@ func (s *Server) Start(ctx context.Context, port int) error {
 	mux.HandleFunc("/api/client/register", s.handleClientRegister)
 	mux.HandleFunc("/api/client/heartbeat", s.handleClientHeartbeat)
 	mux.HandleFunc("/api/clients", s.handleClients)
+	mux.HandleFunc("/api/graph", s.handleGraph)
+	mux.HandleFunc("/api/rules", s.handleRules)
 
 	// Static files – the embedded FS has the shape static/*, so we strip the
 	// leading "static" prefix to serve from "/".
@@ -521,6 +526,32 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 		list = []*ClientInfo{}
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	if s.kb == nil {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "no_kb"})
+		return
+	}
+	graph, err := s.kb.ExportGraphJSON()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(graph))
+}
+
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	// ponytail: returns simple stats; extend to return full rules list when needed
+	path := ""
+	if s.cfg != nil {
+		path = s.cfg.RulesPath
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"rules_path": path,
+		"provider":   s.cfg.AICLIProvider,
+	})
 }
 
 // ponytail: marks clients as disconnected after 60s of no heartbeat
