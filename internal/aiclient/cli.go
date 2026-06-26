@@ -108,11 +108,13 @@ func (p *CLIProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("%s not found after npm install: %v", info.binary, err)
 	}
 
-	copyCmd := exec.CommandContext(ctx, "cp", "-L", which, dest)
-	if err := copyCmd.Run(); err != nil {
-		return fmt.Errorf("copy binary to %s: %w", dest, err)
+	data, err := os.ReadFile(which)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", which, err)
 	}
-	os.Chmod(dest, 0755)
+	if err := os.WriteFile(dest, data, 0755); err != nil {
+		return fmt.Errorf("write %s: %w", dest, err)
+	}
 	fmt.Printf("✅ %s installed to %s\n", p.name, dest)
 
 	return nil
