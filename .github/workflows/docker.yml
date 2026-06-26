@@ -4,63 +4,31 @@ on:
   push:
     branches:
       - main
+      - master
       - 'feature/*'
-    tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push-image:
     runs-on: self-hosted
-    permissions:
-      contents: read
-      packages: write
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        run: |
+          git init
+          git remote add origin http://sparsh:b16a297612aa45586373e2205dedeface87cd425@192.168.0.247:3002/sparsh/Directory-Organizer.git
+          git fetch --depth=1 origin ${{ github.sha }}
+          git reset --hard FETCH_HEAD
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Log in to Gitea Container Registry
+        run: |
+          echo "b16a297612aa45586373e2205dedeface87cd425" | docker login 192.168.0.247:3002 -u "sparsh" --password-stdin
+          echo "b16a297612aa45586373e2205dedeface87cd425" | docker login 127.0.0.1:3002 -u "sparsh" --password-stdin
 
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
-        # Only login if we are going to push (not a PR)
-        if: github.event_name != 'pull_request'
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Docker image
+        run: |
+          docker build -t 192.168.0.247:3002/sparsh/directory-organizer:latest -t 127.0.0.1:3002/sparsh/directory-organizer:latest .
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          # Push only if it's not a pull request
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            BUILD_TIME=${{ github.event.repository.updated_at }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Push Docker image
+        run: |
+          docker push 192.168.0.247:3002/sparsh/directory-organizer:latest
+          docker push 127.0.0.1:3002/sparsh/directory-organizer:latest
