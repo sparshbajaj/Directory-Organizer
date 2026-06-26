@@ -64,6 +64,25 @@ func runClient(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// 1. Let the dashboard know a client connected
+	emitRemoteEvent(cfg, events.Event{
+		Type:   events.EventSystemStart,
+		Source: "Windows Client",
+		Detail: fmt.Sprintf("Remote client connected and watching %d directories", len(cfg.WatchDirs)),
+	})
+
+	// 2. Process existing files in the background (sequentially to avoid hitting API rate limits)
+	go func() {
+		for _, d := range cfg.WatchDirs {
+			entries, _ := os.ReadDir(d)
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					handleRemoteFile(filepath.Join(d, entry.Name()), cfg)
+				}
+			}
+		}
+	}()
+
 	// Print startup banner
 	fmt.Println("╔══════════════════════════════════════════════════╗")
 	fmt.Println("║          🚀 VaultSort Remote Client             ║")
